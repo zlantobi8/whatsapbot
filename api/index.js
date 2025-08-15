@@ -67,12 +67,24 @@ async function sendButtonMessage(to, text, buttons) {
       interactive: {
         type: 'button',
         body: { text },
-        action: { buttons }
+        action: {
+          buttons: buttons.map(btn => ({
+            type: 'reply',
+            reply: {
+              id: btn.id,
+              title: btn.title
+            }
+          }))
+        }
       }
     })
   });
-  return await res.json();
+
+  const data = await res.json();
+  console.log("Button message response:", JSON.stringify(data, null, 2));
+  return data;
 }
+
 
 // --- Webhook verification ---
 app.get('/webhook', (req, res) => {
@@ -111,17 +123,23 @@ app.post('/webhook', async (req, res) => {
       if (userSnap.exists) {
         const userData = userSnap.data();
 
-        // If greeting → send menu
         if (greetings.includes(text.toLowerCase())) {
           await sendTextMessage(from, `Welcome back, ${userData.firstName}! 🎉`);
+
           await sendButtonMessage(from, 'Please choose an option:', [
-            { type: 'reply', reply: { id: 'buy_airtime', title: 'Buy Airtime' } },
-            { type: 'reply', reply: { id: 'buy_data', title: 'Buy Data' } },
-            { type: 'reply', reply: { id: 'check_balance', title: 'Check Balance' } },
-            { type: 'reply', reply: { id: 'view_account', title: 'View Account Details' } }
+            { id: 'buy_airtime', title: 'Buy Airtime' },
+            { id: 'buy_data', title: 'Buy Data' },
+            { id: 'check_balance', title: 'Check Balance' }
           ]);
+
+          // If you still want "View Account Details", send a second button message
+          await sendButtonMessage(from, 'More options:', [
+            { id: 'view_account', title: 'View Account Details' }
+          ]);
+
           return res.sendStatus(200);
         }
+
 
         // Handle button responses
         if (buttonReply) {
