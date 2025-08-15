@@ -370,6 +370,104 @@ app.post('/set-pin/:token', async (req, res) => {
   }
 });
 
+
+
+app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
+
+// ✅ Verify Paystack Signature
+function verifyPaystackSignature(req, res, next) {
+  const paystackSignature = req.headers['x-paystack-signature'];
+  const hash = crypto
+    .createHmac('sha512', process.env.PAYSTACK_SECRET_KEY)
+    .update(req.rawBody)
+    .digest('hex');
+
+  if (hash !== paystackSignature) {
+    console.error('❌ Invalid Paystack signature');
+    return res.status(401).send('Invalid signature');
+  }
+  next();
+}
+
+app.post('/webhook/paystack', verifyPaystackSignature, async (req, res) => {
+  try {
+    const { event, data } = req.body;
+
+    if (event !== 'charge.success') {
+      return res.sendStatus(200); // Ignore other events
+    }
+
+    // ✅ Ensure it's a DVA payment
+    if (data.authorization?.channel !== 'dedicated_nuban') {
+      return res.sendStatus(200);
+    }
+
+    const accountNumber = data.authorization.receiver_bank_account_number;
+    const amount = data.amount / 100; // kobo → naira
+    const txRef = data.reference;
+
+    // ✅ Prevent duplicate processing
+    const txRefDoc = db.collection('transactions').doc(txRef);
+    const txRefSnap = await txRefDoc.get();
+    if (txRefSnap.exists) {
+      console.log('⚠️ Duplicate webhook ignored:', txRef);
+      return res.sendStatus(200);
+    }
+
+    // ✅ Find matching user by reserved account number
+    const userQuery = await db.collection('users')
+      .where('bank.accountNumber', '==', accountNumber)
+      .limit(1)
+      .get();
+
+    if (userQuery.empty) {
+      console.error('❌ No matching user found for account:', accountNumber);
+      return res.sendStatus(404);
+    }
+
+    const userDoc = userQuery.docs[0];
+    const userData = userDoc.data();
+
+    // ✅ Credit balance
+    await userDoc.ref.update({
+      balance: admin.firestore.FieldValue.increment(amount)
+    });
+
+    // ✅ Record transaction
+    await txRefDoc.set({
+      userId: userDoc.id,
+      amount,
+      type: 'credit',
+      source: 'Paystack DVA',
+      accountNumber,
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    // ✅ WhatsApp Notification (template)
+
+    const templateParams = {
+      name: userData.firstName,
+      amount: amount.toFixed(2),
+      balance: (userData.balance + amount).toFixed(2)
+    };
+
+   const whatsappMessage =
+      `🎉 ${templateParams.name} , your account as been credited with!\n` +
+      `🏦 Amount: ${templateParams.amount}\n` +
+      `💳 Balance: ${templateParams.balance}\n` +
+    await sendTextMessage(userData.phone, whatsappMessage);
+
+    console.log(`✅ Payment of ₦${amount} credited to ${userData.firstName}`);
+    res.sendStatus(200);
+
+  } catch (err) {
+    console.error('❌ Paystack Webhook Error:', err);
+    res.sendStatus(500);
+  }
+});
+
+
+
 /* ---------------- Server ---------------- */
 app.listen(3000, () => {
   console.log('🚀 Server running on http://localhost:3000');
