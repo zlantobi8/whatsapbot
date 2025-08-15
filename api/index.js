@@ -2,7 +2,6 @@ import express from 'express';
 import admin from 'firebase-admin';
 import crypto from 'crypto';
 import axios from 'axios';
-import serverless from 'serverless-http';
 import dotenv from 'dotenv';
 // --- Firebase setup ---
 dotenv.config();
@@ -245,6 +244,6 @@ app.post('/set-pin/:token', async (req, res) => {
   }
 });
 
-// --- Export serverless handler ---
-export default serverless(app);
-
+app.listen(3000, () => {
+  console.log(`🚀 Server running on http://localhost:${3000}`);
+});
