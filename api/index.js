@@ -3,6 +3,7 @@ import admin from 'firebase-admin';
 import crypto from 'crypto';
 import axios from 'axios';
 import dotenv from 'dotenv';
+import bodyParser from 'body-parser';
 // --- Firebase setup ---
 dotenv.config();
 
@@ -28,8 +29,9 @@ db.settings({ ignoreUndefinedProperties: true });
 
 // --- Express setup ---
 const app = express();
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// ✅ Add proper body parsers
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(bodyParser.json());
 
 const accessToken = process.env.ACCESS_TOKEN;
 const phoneNumberId = process.env.phoneNumberId;
@@ -208,8 +210,6 @@ app.post('/webhook', async (req, res) => {
 });
 
 
-
-// --- PIN setup ---
 app.get('/set-pin/:token', async (req, res) => {
   const tokenRef = db.collection('pinTokens').doc(req.params.token);
   const tokenSnap = await tokenRef.get();
@@ -217,40 +217,41 @@ app.get('/set-pin/:token', async (req, res) => {
   if (!tokenSnap.exists) return res.send('Invalid or expired token.');
 
   const tokenData = tokenSnap.data();
-  if (tokenData.expiresAt.toMillis() < admin.firestore.Timestamp.now().toMillis()) {
+  if (tokenData.expiresAt.toMillis() < Date.now()) {
     await tokenRef.delete();
     return res.send('Token expired. Please restart registration.');
   }
 
+  // Serve simple HTML form
   res.send(`
     <html>
     <head>
-        <title>Set Zlt Topup PIN</title>
-        <style>
-            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f6f8; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-            .container { background: #fff; padding: 40px; border-radius: 12px; box-shadow: 0 8px 20px rgba(0,0,0,0.1); text-align: center; max-width: 400px; width: 100%; }
-            h2 { color: #2c3e50; margin-bottom: 30px; }
-            input[type="password"] { width: 100%; padding: 12px; margin-bottom: 20px; border: 1px solid #ccc; border-radius: 8px; font-size: 16px; }
-            button { width: 100%; padding: 12px; background-color: #27ae60; color: #fff; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; transition: background 0.3s; }
-            button:hover { background-color: #219150; }
-            p { font-size: 14px; color: #7f8c8d; margin-top: 15px; }
-        </style>
+      <title>Set Zlt Topup PIN</title>
+      <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #f4f6f8; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .container { background: #fff; padding: 40px; border-radius: 12px; box-shadow: 0 8px 20px rgba(0,0,0,0.1); text-align: center; max-width: 400px; width: 100%; }
+        input[type="password"] { width: 100%; padding: 12px; margin-bottom: 20px; border: 1px solid #ccc; border-radius: 8px; font-size: 16px; }
+        button { width: 100%; padding: 12px; background-color: #27ae60; color: #fff; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; transition: background 0.3s; }
+        button:hover { background-color: #219150; }
+      </style>
     </head>
     <body>
-        <div class="container">
-            <h2>Set your Zlt Topup PIN</h2>
-            <form method="POST" action="/set-pin/${token}">
-                <input type="password" name="pin" placeholder="Enter 4-digit PIN" maxlength="4" required />
-                <button type="submit">Set PIN</button>
-            </form>
-            <p>PIN will expire in 5 minutes. Keep it secure!</p>
-        </div>
+      <div class="container">
+        <h2>Set your Zlt Topup PIN</h2>
+        <form method="POST" action="/set-pin/${req.params.token}" enctype="application/x-www-form-urlencoded">
+          <input type="password" name="pin" placeholder="Enter 4-digit PIN" maxlength="4" required />
+          <button type="submit">Set PIN</button>
+        </form>
+        <p>PIN will expire in 5 minutes. Keep it secure!</p>
+      </div>
     </body>
     </html>
-`);
+  `);
 });
 
 app.post('/set-pin/:token', async (req, res) => {
+  console.log('POST /set-pin body:', req.body); // 🔹 debug check
+
   const token = req.params.token;
   const pin = req.body.pin;
 
@@ -291,18 +292,23 @@ app.post('/set-pin/:token', async (req, res) => {
 
     const accountData = accountResponse.data.data;
 
-    await sendTextMessage(phone,
-      `🎉 ${firstName} ${lastName}, your account is ready!\n` +
-      `🏦 Bank: ${accountData.bank.name}\n` +
-      `💳 Account Name: ${accountData.account_name}\n` +
-      `🔢 Account Number: ${accountData.account_number}`
-    );
-
-    res.json({ status: true, message: 'PIN set successfully!', customer: customerResponse.data.data, dedicated_account: accountData });
+    res.send(`
+      <html>
+        <body style="font-family:sans-serif;text-align:center;padding:50px">
+          <h2>🎉 PIN set successfully!</h2>
+          <p>${firstName} ${lastName}, your account is ready.</p>
+          <p>🏦 Bank: ${accountData.bank.name}</p>
+          <p>💳 Account Name: ${accountData.account_name}</p>
+          <p>🔢 Account Number: ${accountData.account_number}</p>
+        </body>
+      </html>
+    `);
   } catch (err) {
-    res.status(err.response?.status || 500).json(err.response?.data || { message: err.message });
+    console.error('Paystack error:', err.response?.data || err.message);
+    res.send('Error creating account. Please try again later.');
   }
 });
+
 
 app.listen(3000, () => {
   console.log(`🚀 Server running on http://localhost:${3000}`);
