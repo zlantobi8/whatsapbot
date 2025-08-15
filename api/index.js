@@ -1,5 +1,4 @@
 import express from 'express';
-import fetch from 'node-fetch';
 import admin from 'firebase-admin';
 import crypto from 'crypto';
 import axios from 'axios';
