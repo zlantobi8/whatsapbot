@@ -3,7 +3,7 @@ import fetch from 'node-fetch';
 import admin from 'firebase-admin';
 import crypto from 'crypto';
 import axios from 'axios';
-
+import serverless from 'serverless-http';
 // Firebase setup
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 admin.initializeApp({
@@ -263,6 +263,4 @@ app.post('/set-pin/:token', async (req, res) => {
 });
 
 // Start server
-app.listen(3000, () => {
-    console.log('🚀 Server running on port 3000');
-});
+export const handler = serverless(app);
