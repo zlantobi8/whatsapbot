@@ -5,10 +5,19 @@ import crypto from 'crypto';
 import axios from 'axios';
 import serverless from 'serverless-http';
 // Firebase setup
+// Parse the Firebase service account env variable
 const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount)
-});
+
+// Replace escaped newlines with real newlines
+serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+
+// Initialize Firebase only if not already initialized
+if (!admin.apps.length) {
+    admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount)
+    });
+}
+
 const db = admin.firestore();
 db.settings({ ignoreUndefinedProperties: true });
 
