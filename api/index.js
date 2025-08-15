@@ -4,10 +4,10 @@ import crypto from 'crypto';
 import axios from 'axios';
 import dotenv from 'dotenv';
 import bodyParser from 'body-parser';
-// --- Firebase setup ---
+
 dotenv.config();
 
-
+// --- Firebase setup ---
 admin.initializeApp({
   credential: admin.credential.cert({
     type: process.env.FIREBASE_TYPE,
@@ -29,7 +29,6 @@ db.settings({ ignoreUndefinedProperties: true });
 
 // --- Express setup ---
 const app = express();
-// ✅ Add proper body parsers
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 
@@ -37,61 +36,43 @@ const accessToken = process.env.ACCESS_TOKEN;
 const phoneNumberId = process.env.phoneNumberId;
 const verifyToken = process.env.verifyToken;
 
-// --- Helper: send WhatsApp messages via fetch (native in Node 18+) ---
+// --- WhatsApp helpers ---
 async function sendTextMessage(to, message) {
-  try {
-    const res = await fetch(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        messaging_product: 'whatsapp',
-        to,
-        text: { body: message }
-      })
-    });
-
-    const data = await res.json();
-    console.log('WhatsApp API response:', data); // 🔹 log the response
-    return data;
-  } catch (err) {
-    console.error('Error sending WhatsApp message:', err); // 🔹 log the error
-    return { error: err.message }; // 🔹 return it if you want to send back in webhook
-  }
+  const res = await fetch(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      to,
+      text: { body: message }
+    })
+  });
+  return await res.json();
 }
 
 async function sendButtonMessage(to, text, buttons) {
-  try {
-    const res = await fetch(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        messaging_product: 'whatsapp',
-        to,
-        type: 'interactive',
-        interactive: {
-          type: 'button',
-          body: { text },
-          action: { buttons }
-        }
-      })
-    });
-
-    const data = await res.json();
-    console.log('WhatsApp Button API response:', data);
-    return data;
-  } catch (err) {
-    console.error('Error sending WhatsApp button message:', err);
-    return { error: err.message };
-  }
+  const res = await fetch(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      to,
+      type: 'interactive',
+      interactive: {
+        type: 'button',
+        body: { text },
+        action: { buttons }
+      }
+    })
+  });
+  return await res.json();
 }
-
-
 
 // --- Webhook verification ---
 app.get('/webhook', (req, res) => {
@@ -101,7 +82,6 @@ app.get('/webhook', (req, res) => {
 
   if (mode && token) {
     if (mode === 'subscribe' && token === verifyToken) {
-      console.log('✅ Webhook verified!');
       res.status(200).send(challenge);
     } else {
       res.sendStatus(403);
@@ -120,66 +100,100 @@ app.post('/webhook', async (req, res) => {
       const message = body.entry[0].changes[0].value.messages[0];
       const from = message.from;
       const text = message.text?.body?.trim() || '';
+      const buttonReply = message.button?.text?.trim();
 
-      console.log('Incoming message from:', from, 'text:', text);
+      const greetings = ['hi', 'hello', 'hey', 'yo', 'sup'];
 
+      // --- Check if user exists ---
       const userRef = db.collection('users').doc(from);
       const userSnap = await userRef.get();
 
       if (userSnap.exists) {
-        // Existing user
         const userData = userSnap.data();
-        const result = await sendTextMessage(from, `Welcome back, ${userData.firstName}! 🎉`);
-        console.log('Existing user message result:', result);
-        return res.sendStatus(200);
-      }
 
-      const flowRef = db.collection('flows').doc(from);
-      const flowSnap = await flowRef.get();
-      const flowData = flowSnap.data();
-
-      // Step 0: New user
-      if (!flowSnap.exists) {
-        const greetings = ['hi','hello','hey','yo','sup'];
+        // If greeting → send menu
         if (greetings.includes(text.toLowerCase())) {
-          const result = await sendTextMessage(from, 'Welcome to Zlt Topup! Please enter your FIRST NAME:');
-          console.log('New user greeting message result:', result);
-          await flowRef.set({ step: 1 });
+          await sendTextMessage(from, `Welcome back, ${userData.firstName}! 🎉`);
+          await sendButtonMessage(from, 'Please choose an option:', [
+            { type: 'reply', reply: { id: 'buy_airtime', title: 'Buy Airtime' } },
+            { type: 'reply', reply: { id: 'buy_data', title: 'Buy Data' } },
+            { type: 'reply', reply: { id: 'check_balance', title: 'Check Balance' } },
+            { type: 'reply', reply: { id: 'view_account', title: 'View Account Details' } }
+          ]);
           return res.sendStatus(200);
-        } else {
-          // Optional: treat first message as first name if not a greeting
-          await flowRef.set({ firstName: text, step: 2 });
-          const result = await sendTextMessage(from, 'Great! Now please enter your LAST NAME:');
-          console.log('New user first name message result:', result);
+        }
+
+        // Handle button responses
+        if (buttonReply) {
+          switch (buttonReply) {
+            case 'Buy Airtime':
+              await sendTextMessage(from, 'You selected Buy Airtime. Please enter the amount:');
+              break;
+            case 'Buy Data':
+              await sendTextMessage(from, 'You selected Buy Data. Please choose a data plan:');
+              break;
+            case 'Check Balance':
+              await sendTextMessage(from, 'Fetching your balance... 💰');
+              break;
+            case 'View Account Details':
+              await sendTextMessage(from, `🏦 Bank: ${userData.bank.name}\n💳 Account Name: ${userData.bank.accountName}\n🔢 Account Number: ${userData.bank.accountNumber}`);
+              break;
+            default:
+              await sendTextMessage(from, 'Invalid selection.');
+          }
           return res.sendStatus(200);
         }
       }
 
-      // Step 1: Collect first name
+      // --- New user registration flow ---
+      const flowRef = db.collection('flows').doc(from);
+      const flowSnap = await flowRef.get();
+      const flowData = flowSnap.data() || {};
+
+      if (!flowSnap.exists) {
+        if (greetings.includes(text.toLowerCase())) {
+          await sendTextMessage(from, 'Welcome to Zlt Topup! Please enter your FIRST NAME:');
+          await flowRef.set({ step: 1 });
+          return res.sendStatus(200);
+        } else if (/^[a-zA-Z]+$/.test(text)) {
+          await flowRef.set({ firstName: text, step: 2 });
+          await sendTextMessage(from, 'Great! Now please enter your LAST NAME:');
+          return res.sendStatus(200);
+        } else {
+          await sendTextMessage(from, 'Please enter a valid FIRST NAME:');
+          await flowRef.set({ step: 1 });
+          return res.sendStatus(200);
+        }
+      }
+
       if (flowData.step === 1) {
-        await flowRef.update({ firstName: text, step: 2 });
-        const result = await sendTextMessage(from, 'Great! Now please enter your LAST NAME:');
-        console.log('Step 1 message result:', result);
+        if (/^[a-zA-Z]+$/.test(text)) {
+          await flowRef.update({ firstName: text, step: 2 });
+          await sendTextMessage(from, 'Great! Now please enter your LAST NAME:');
+        } else {
+          await sendTextMessage(from, 'Please enter a valid FIRST NAME:');
+        }
         return res.sendStatus(200);
       }
 
-      // Step 2: Collect last name
       if (flowData.step === 2) {
-        await flowRef.update({ lastName: text, step: 3 });
-        const result = await sendTextMessage(from, 'Almost done! Please enter your EMAIL:');
-        console.log('Step 2 message result:', result);
+        if (/^[a-zA-Z]+$/.test(text)) {
+          await flowRef.update({ lastName: text, step: 3 });
+          await sendTextMessage(from, 'Almost done! Please enter your EMAIL:');
+        } else {
+          await sendTextMessage(from, 'Please enter a valid LAST NAME:');
+        }
         return res.sendStatus(200);
       }
 
-      // Step 3: Collect email and generate PIN token
       if (flowData.step === 3) {
         const { firstName, lastName } = flowData;
         const email = text;
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-        if (!firstName || !lastName || !email) {
-          const result = await sendTextMessage(from, 'Error: Missing information. Please restart registration.');
-          console.log('Step 3 missing info message result:', result);
-          return res.sendStatus(400);
+        if (!emailRegex.test(email)) {
+          await sendTextMessage(from, 'Please enter a valid EMAIL address:');
+          return res.sendStatus(200);
         }
 
         const pinToken = crypto.randomBytes(16).toString('hex');
@@ -194,8 +208,7 @@ app.post('/webhook', async (req, res) => {
         });
 
         const pinUrl = `https://whatsapbot.vercel.app/set-pin/${pinToken}`;
-        const result = await sendTextMessage(from, `Almost done! Please set your PIN securely here: ${pinUrl} (expires in 5 minutes)`);
-        console.log('Step 3 PIN message result:', result);
+        await sendTextMessage(from, `Almost done! Please set your PIN securely here: ${pinUrl} (expires in 5 minutes)`);
 
         await flowRef.update({ step: 4 });
         return res.sendStatus(200);
@@ -250,7 +263,7 @@ app.get('/set-pin/:token', async (req, res) => {
 });
 
 app.post('/set-pin/:token', async (req, res) => {
-  console.log('POST /set-pin body:', req.body); // 🔹 debug check
+  console.log('POST /set-pin body:', req.body);
 
   const token = req.params.token;
   const pin = req.body.pin;
@@ -260,18 +273,6 @@ app.post('/set-pin/:token', async (req, res) => {
   if (!tokenSnap.exists) return res.send('Invalid or expired token.');
 
   const { phone, firstName, lastName, email } = tokenSnap.data();
-
-  await db.collection('users').doc(phone).set({
-    firstName,
-    lastName,
-    phone,
-    email,
-    pin,
-    createdAt: admin.firestore.FieldValue.serverTimestamp()
-  });
-
-  await tokenRef.delete();
-  await db.collection('flows').doc(phone).delete();
 
   try {
     // Create Paystack customer
@@ -292,6 +293,35 @@ app.post('/set-pin/:token', async (req, res) => {
 
     const accountData = accountResponse.data.data;
 
+    // Save user with PIN and account details
+    await db.collection('users').doc(phone).set({
+      firstName,
+      lastName,
+      phone,
+      email,
+      pin,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      bank: {
+        name: accountData.bank.name,
+        accountName: accountData.account_name,
+        accountNumber: accountData.account_number,
+        customerCode: customerCode
+      }
+    });
+
+    // Clean up token and flow
+    await tokenRef.delete();
+    await db.collection('flows').doc(phone).delete();
+
+    // Send WhatsApp confirmation
+    const whatsappMessage =
+      `🎉 ${firstName} ${lastName}, your account is ready!\n` +
+      `🏦 Bank: ${accountData.bank.name}\n` +
+      `💳 Account Name: ${accountData.account_name}\n` +
+      `🔢 Account Number: ${accountData.account_number}`;
+
+    await sendTextMessage(phone, whatsappMessage);
+
     res.send(`
       <html>
         <body style="font-family:sans-serif;text-align:center;padding:50px">
@@ -308,6 +338,7 @@ app.post('/set-pin/:token', async (req, res) => {
     res.send('Error creating account. Please try again later.');
   }
 });
+
 
 
 app.listen(3000, () => {
