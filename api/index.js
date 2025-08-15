@@ -13,7 +13,7 @@ admin.initializeApp({
     type: process.env.FIREBASE_TYPE,
     projectId: process.env.FIREBASE_PROJECT_ID,
     privateKeyId: process.env.FIREBASE_PRIVATE_KEY_ID,
-   privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+    private_key: process.env.FIREBASE_PRIVATE_KEY_ID.replace(/\\n/g, '\n'),
     clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
     clientId: process.env.FIREBASE_CLIENT_ID,
     authUri: process.env.FIREBASE_AUTH_URI,
@@ -163,7 +163,7 @@ app.get('/set-pin/:token', async (req, res) => {
     return res.send('Token expired. Please restart registration.');
   }
 
-    res.send(`
+  res.send(`
     <html>
     <head>
         <title>Set Zlt Topup PIN</title>
