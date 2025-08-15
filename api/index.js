@@ -90,58 +90,6 @@ async function sendButtonMessage(to, text, buttons) {
 }
 
 
-async function sendTextMessage(to, message) {
-  try {
-    const res = await fetch(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        messaging_product: 'whatsapp',
-        to,
-        text: { body: message }
-      })
-    });
-
-    const data = await res.json();
-    console.log('WhatsApp API response:', data); // 🔹 log the response
-    return data;
-  } catch (err) {
-    console.error('Error sending WhatsApp message:', err); // 🔹 log the error
-    return { error: err.message }; // 🔹 return it if you want to send back in webhook
-  }
-}
-async function sendButtonMessage(to, text, buttons) {
-  try {
-    const res = await fetch(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        messaging_product: 'whatsapp',
-        to,
-        type: 'interactive',
-        interactive: {
-          type: 'button',
-          body: { text },
-          action: { buttons }
-        }
-      })
-    });
-
-    const data = await res.json();
-    console.log('WhatsApp Button API response:', data);
-    return data;
-  } catch (err) {
-    console.error('Error sending WhatsApp button message:', err);
-    return { error: err.message };
-  }
-}
-
 
 // --- Webhook verification ---
 app.get('/webhook', (req, res) => {
