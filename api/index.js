@@ -45,7 +45,7 @@ async function sendTextMessage(to, message) {
     });
 }
 
-// 2️⃣ Send button message
+
 async function sendButtonMessage(to, text, buttons) {
     await fetch(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages`, {
         method: 'POST',
