@@ -5,8 +5,9 @@ import crypto from 'crypto';
 import axios from 'axios';
 
 // Firebase setup
+const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 admin.initializeApp({
-    credential: admin.credential.cert("./serviceAccountKey.json")
+    credential: admin.credential.cert(serviceAccount)
 });
 const db = admin.firestore();
 db.settings({ ignoreUndefinedProperties: true });
