@@ -3,7 +3,7 @@ import admin from 'firebase-admin';
 import crypto from 'crypto';
 import axios from 'axios';
 import serverless from 'serverless-http';
-
+import dotenv from 'dotenv';
 // --- Firebase setup ---
 dotenv.config();
 
