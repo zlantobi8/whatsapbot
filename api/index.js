@@ -37,39 +37,111 @@ const verifyToken = process.env.verifyToken;
 
 // --- Helper: send WhatsApp messages via fetch (native in Node 18+) ---
 async function sendTextMessage(to, message) {
-  await fetch(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      messaging_product: 'whatsapp',
-      to,
-      text: { body: message }
-    })
-  });
+  try {
+    const res = await fetch(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        to,
+        text: { body: message }
+      })
+    });
+
+    const data = await res.json();
+    console.log('WhatsApp API response:', data); // 🔹 log the response
+    return data;
+  } catch (err) {
+    console.error('Error sending WhatsApp message:', err); // 🔹 log the error
+    return { error: err.message }; // 🔹 return it if you want to send back in webhook
+  }
 }
 
 async function sendButtonMessage(to, text, buttons) {
-  await fetch(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages`, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${accessToken}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      messaging_product: 'whatsapp',
-      to,
-      type: 'interactive',
-      interactive: {
-        type: 'button',
-        body: { text },
-        action: { buttons }
-      }
-    })
-  });
+  try {
+    const res = await fetch(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        to,
+        type: 'interactive',
+        interactive: {
+          type: 'button',
+          body: { text },
+          action: { buttons }
+        }
+      })
+    });
+
+    const data = await res.json();
+    console.log('WhatsApp Button API response:', data);
+    return data;
+  } catch (err) {
+    console.error('Error sending WhatsApp button message:', err);
+    return { error: err.message };
+  }
 }
+
+
+async function sendTextMessage(to, message) {
+  try {
+    const res = await fetch(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        to,
+        text: { body: message }
+      })
+    });
+
+    const data = await res.json();
+    console.log('WhatsApp API response:', data); // 🔹 log the response
+    return data;
+  } catch (err) {
+    console.error('Error sending WhatsApp message:', err); // 🔹 log the error
+    return { error: err.message }; // 🔹 return it if you want to send back in webhook
+  }
+}
+async function sendButtonMessage(to, text, buttons) {
+  try {
+    const res = await fetch(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        to,
+        type: 'interactive',
+        interactive: {
+          type: 'button',
+          body: { text },
+          action: { buttons }
+        }
+      })
+    });
+
+    const data = await res.json();
+    console.log('WhatsApp Button API response:', data);
+    return data;
+  } catch (err) {
+    console.error('Error sending WhatsApp button message:', err);
+    return { error: err.message };
+  }
+}
+
 
 // --- Webhook verification ---
 app.get('/webhook', (req, res) => {
@@ -90,90 +162,103 @@ app.get('/webhook', (req, res) => {
 });
 
 // --- Webhook POST ---
-// --- Webhook POST ---
 app.post('/webhook', async (req, res) => {
   const body = req.body;
 
-  if (body.object && body.entry?.[0].changes?.[0].value.messages) {
-    const message = body.entry[0].changes[0].value.messages[0];
-    const from = message.from;
-    const text = message.text?.body?.trim() || '';
+  try {
+    if (body.object && body.entry?.[0].changes?.[0].value.messages) {
+      const message = body.entry[0].changes[0].value.messages[0];
+      const from = message.from;
+      const text = message.text?.body?.trim() || '';
 
-    const userRef = db.collection('users').doc(from);
-    const userSnap = await userRef.get();
+      console.log('Incoming message from:', from, 'text:', text);
 
-    if (userSnap.exists) {
-      // Existing user
-      const userData = userSnap.data();
-      await sendTextMessage(from, `Welcome back, ${userData.firstName}! 🎉`);
-      return res.sendStatus(200);
-    }
+      const userRef = db.collection('users').doc(from);
+      const userSnap = await userRef.get();
 
-    const flowRef = db.collection('flows').doc(from);
-    const flowSnap = await flowRef.get();
-    const flowData = flowSnap.data();
+      if (userSnap.exists) {
+        // Existing user
+        const userData = userSnap.data();
+        const result = await sendTextMessage(from, `Welcome back, ${userData.firstName}! 🎉`);
+        console.log('Existing user message result:', result);
+        return res.sendStatus(200);
+      }
 
-    // Step 0: New user, start registration
-    if (!flowSnap.exists) {
-      const greetings = ['hi','hello','hey','yo','sup'];
-      if (greetings.includes(text.toLowerCase())) {
-        await sendTextMessage(from, 'Welcome to Zlt Topup! Please enter your FIRST NAME:');
-        await flowRef.set({ step: 1 });
-        return res.sendStatus(200); // stop processing this message
-      } else {
-        // Optional: treat first message as first name if not a greeting
-        await flowRef.set({ firstName: text, step: 2 });
-        await sendTextMessage(from, 'Great! Now please enter your LAST NAME:');
+      const flowRef = db.collection('flows').doc(from);
+      const flowSnap = await flowRef.get();
+      const flowData = flowSnap.data();
+
+      // Step 0: New user
+      if (!flowSnap.exists) {
+        const greetings = ['hi','hello','hey','yo','sup'];
+        if (greetings.includes(text.toLowerCase())) {
+          const result = await sendTextMessage(from, 'Welcome to Zlt Topup! Please enter your FIRST NAME:');
+          console.log('New user greeting message result:', result);
+          await flowRef.set({ step: 1 });
+          return res.sendStatus(200);
+        } else {
+          // Optional: treat first message as first name if not a greeting
+          await flowRef.set({ firstName: text, step: 2 });
+          const result = await sendTextMessage(from, 'Great! Now please enter your LAST NAME:');
+          console.log('New user first name message result:', result);
+          return res.sendStatus(200);
+        }
+      }
+
+      // Step 1: Collect first name
+      if (flowData.step === 1) {
+        await flowRef.update({ firstName: text, step: 2 });
+        const result = await sendTextMessage(from, 'Great! Now please enter your LAST NAME:');
+        console.log('Step 1 message result:', result);
+        return res.sendStatus(200);
+      }
+
+      // Step 2: Collect last name
+      if (flowData.step === 2) {
+        await flowRef.update({ lastName: text, step: 3 });
+        const result = await sendTextMessage(from, 'Almost done! Please enter your EMAIL:');
+        console.log('Step 2 message result:', result);
+        return res.sendStatus(200);
+      }
+
+      // Step 3: Collect email and generate PIN token
+      if (flowData.step === 3) {
+        const { firstName, lastName } = flowData;
+        const email = text;
+
+        if (!firstName || !lastName || !email) {
+          const result = await sendTextMessage(from, 'Error: Missing information. Please restart registration.');
+          console.log('Step 3 missing info message result:', result);
+          return res.sendStatus(400);
+        }
+
+        const pinToken = crypto.randomBytes(16).toString('hex');
+        const expiresAt = admin.firestore.Timestamp.fromDate(new Date(Date.now() + 5 * 60 * 1000));
+
+        await db.collection('pinTokens').doc(pinToken).set({
+          phone: from,
+          firstName,
+          lastName,
+          email,
+          expiresAt
+        });
+
+        const pinUrl = `https://whatsapbot.vercel.app/set-pin/${pinToken}`;
+        const result = await sendTextMessage(from, `Almost done! Please set your PIN securely here: ${pinUrl} (expires in 5 minutes)`);
+        console.log('Step 3 PIN message result:', result);
+
+        await flowRef.update({ step: 4 });
         return res.sendStatus(200);
       }
     }
 
-    // Step 1: Collect first name
-    if (flowData.step === 1) {
-      await flowRef.update({ firstName: text, step: 2 });
-      await sendTextMessage(from, 'Great! Now please enter your LAST NAME:');
-      return res.sendStatus(200);
-    }
-
-    // Step 2: Collect last name
-    if (flowData.step === 2) {
-      await flowRef.update({ lastName: text, step: 3 });
-      await sendTextMessage(from, 'Almost done! Please enter your EMAIL:');
-      return res.sendStatus(200);
-    }
-
-    // Step 3: Collect email and generate PIN token
-    if (flowData.step === 3) {
-      const { firstName, lastName } = flowData;
-      const email = text;
-
-      if (!firstName || !lastName || !email) {
-        await sendTextMessage(from, 'Error: Missing information. Please restart registration.');
-        return res.sendStatus(400);
-      }
-
-      const pinToken = crypto.randomBytes(16).toString('hex');
-      const expiresAt = admin.firestore.Timestamp.fromDate(new Date(Date.now() + 5 * 60 * 1000));
-
-      await db.collection('pinTokens').doc(pinToken).set({
-        phone: from,
-        firstName,
-        lastName,
-        email,
-        expiresAt
-      });
-
-      const pinUrl = `https://whatsapbot.vercel.app/set-pin/${pinToken}`;
-      await sendTextMessage(from, `Almost done! Please set your PIN securely here: ${pinUrl} (expires in 5 minutes)`);
-
-      await flowRef.update({ step: 4 });
-      return res.sendStatus(200);
-    }
-
+    res.sendStatus(200);
+  } catch (err) {
+    console.error('Webhook POST error:', err);
+    res.status(500).json({ error: err.message });
   }
-
-  res.sendStatus(200);
 });
+
 
 
 // --- PIN setup ---
