@@ -3,23 +3,21 @@ import admin from 'firebase-admin';
 import crypto from 'crypto';
 import axios from 'axios';
 import serverless from 'serverless-http';
-// Firebase setup
-// Parse the Firebase service account env variable
-const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 
-// Replace escaped newlines with real newlines
+// --- Firebase setup ---
+const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
 
-// Initialize Firebase only if not already initialized
 if (!admin.apps.length) {
-    admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount)
-    });
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount)
+  });
 }
 
 const db = admin.firestore();
 db.settings({ ignoreUndefinedProperties: true });
 
+// --- Express setup ---
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -28,137 +26,132 @@ const accessToken = process.env.ACCESS_TOKEN;
 const phoneNumberId = process.env.phoneNumberId;
 const verifyToken = process.env.verifyToken;
 
-// 1️⃣ Send plain text
+// --- Helper: send WhatsApp messages via fetch (native in Node 18+) ---
 async function sendTextMessage(to, message) {
-    await fetch(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages`, {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            messaging_product: 'whatsapp',
-            to,
-            text: { body: message }
-        })
-    });
+  await fetch(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      to,
+      text: { body: message }
+    })
+  });
 }
-
 
 async function sendButtonMessage(to, text, buttons) {
-    await fetch(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages`, {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-            messaging_product: 'whatsapp',
-            to,
-            type: 'interactive',
-            interactive: {
-                type: 'button',
-                body: { text },
-                action: { buttons }
-            }
-        })
-    });
+  await fetch(`https://graph.facebook.com/v22.0/${phoneNumberId}/messages`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      messaging_product: 'whatsapp',
+      to,
+      type: 'interactive',
+      interactive: {
+        type: 'button',
+        body: { text },
+        action: { buttons }
+      }
+    })
+  });
 }
 
-// Webhook verification
+// --- Webhook verification ---
 app.get('/webhook', (req, res) => {
-    const mode = req.query['hub.mode'];
-    const token = req.query['hub.verify_token'];
-    const challenge = req.query['hub.challenge'];
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
 
-    if (mode && token) {
-        if (mode === 'subscribe' && token === verifyToken) {
-            console.log('✅ Webhook verified!');
-            res.status(200).send(challenge);
-        } else {
-            res.sendStatus(403);
-        }
+  if (mode && token) {
+    if (mode === 'subscribe' && token === verifyToken) {
+      console.log('✅ Webhook verified!');
+      res.status(200).send(challenge);
+    } else {
+      res.sendStatus(403);
     }
+  } else {
+    res.sendStatus(400);
+  }
 });
 
-// Webhook POST
+// --- Webhook POST ---
 app.post('/webhook', async (req, res) => {
-    const body = req.body;
+  const body = req.body;
 
-    if (body.object && body.entry && body.entry[0].changes && body.entry[0].changes[0].value.messages) {
-        const message = body.entry[0].changes[0].value.messages[0];
-        const from = message.from;
-        const text = message.text?.body?.trim() || '';
+  if (body.object && body.entry?.[0].changes?.[0].value.messages) {
+    const message = body.entry[0].changes[0].value.messages[0];
+    const from = message.from;
+    const text = message.text?.body?.trim() || '';
 
-        const userRef = db.collection('users').doc(from);
-        const userSnap = await userRef.get();
+    const userRef = db.collection('users').doc(from);
+    const userSnap = await userRef.get();
 
-        if (userSnap.exists) {
-            // User exists → welcome back
-            const userData = userSnap.data();
-            await sendTextMessage(from, `Welcome back, ${userData.firstName}! 🎉`);
-        } else {
-            const flowRef = db.collection('flows').doc(from);
-            const flowSnap = await flowRef.get();
-            const flowData = flowSnap.data();
+    if (userSnap.exists) {
+      const userData = userSnap.data();
+      await sendTextMessage(from, `Welcome back, ${userData.firstName}! 🎉`);
+    } else {
+      const flowRef = db.collection('flows').doc(from);
+      const flowSnap = await flowRef.get();
+      const flowData = flowSnap.data();
 
-            if (!flowSnap.exists) {
-                // Step 1 → ask first name
-                await sendTextMessage(from, 'Welcome to Zlt Topup! Please enter your FIRST NAME:');
-                await flowRef.set({ step: 1 });
-            } else if (flowData.step === 1) {
-                await flowRef.update({ firstName: text, step: 2 });
-                await sendTextMessage(from, 'Great! Now please enter your LAST NAME:');
-            } else if (flowData.step === 2) {
-                await flowRef.update({ lastName: text, step: 3 });
-                await sendTextMessage(from, 'Almost done! Please enter your EMAIL:');
-            } else if (flowData.step === 3) {
-                const firstName = flowData.firstName;
-                const lastName = flowData.lastName;
-                const email = text;
+      if (!flowSnap.exists) {
+        await sendTextMessage(from, 'Welcome to Zlt Topup! Please enter your FIRST NAME:');
+        await flowRef.set({ step: 1 });
+      } else if (flowData.step === 1) {
+        await flowRef.update({ firstName: text, step: 2 });
+        await sendTextMessage(from, 'Great! Now please enter your LAST NAME:');
+      } else if (flowData.step === 2) {
+        await flowRef.update({ lastName: text, step: 3 });
+        await sendTextMessage(from, 'Almost done! Please enter your EMAIL:');
+      } else if (flowData.step === 3) {
+        const { firstName, lastName } = flowData;
+        const email = text;
 
-                if (!firstName || !lastName || !email) {
-                    await sendTextMessage(from, 'Error: Missing information. Please restart registration.');
-                    return;
-                }
-
-                const pinToken = crypto.randomBytes(16).toString('hex');
-                const expiresAt = admin.firestore.Timestamp.fromDate(new Date(Date.now() + 5 * 60 * 1000));
-
-                await db.collection('pinTokens').doc(pinToken).set({
-                    phone: from,
-                    firstName,
-                    lastName,
-                    email,
-                    expiresAt
-                });
-
-                const pinUrl = `https://whatsapbot.vercel.app/set-pin/${pinToken}`;
-                await sendTextMessage(from, `Almost done! Please set your PIN securely here: ${pinUrl} (expires in 5 minutes)`);
-
-                await flowRef.update({ step: 4 });
-            }
+        if (!firstName || !lastName || !email) {
+          await sendTextMessage(from, 'Error: Missing information. Please restart registration.');
+          return;
         }
-    }
 
-    res.sendStatus(200);
+        const pinToken = crypto.randomBytes(16).toString('hex');
+        const expiresAt = admin.firestore.Timestamp.fromDate(new Date(Date.now() + 5 * 60 * 1000));
+
+        await db.collection('pinTokens').doc(pinToken).set({
+          phone: from,
+          firstName,
+          lastName,
+          email,
+          expiresAt
+        });
+
+        const pinUrl = `https://whatsapbot.vercel.app/set-pin/${pinToken}`;
+        await sendTextMessage(from, `Almost done! Please set your PIN securely here: ${pinUrl} (expires in 5 minutes)`);
+
+        await flowRef.update({ step: 4 });
+      }
+    }
+  }
+
+  res.sendStatus(200);
 });
 
-// PIN setup form
+// --- PIN setup ---
 app.get('/set-pin/:token', async (req, res) => {
-    const token = req.params.token;
-    const tokenRef = db.collection('pinTokens').doc(token);
-    const tokenSnap = await tokenRef.get();
+  const tokenRef = db.collection('pinTokens').doc(req.params.token);
+  const tokenSnap = await tokenRef.get();
 
-    if (!tokenSnap.exists) return res.send('Invalid or expired token.');
+  if (!tokenSnap.exists) return res.send('Invalid or expired token.');
 
-    const tokenData = tokenSnap.data();
-    const now = admin.firestore.Timestamp.now();
-
-    if (tokenData.expiresAt.toMillis() < now.toMillis()) {
-        await tokenRef.delete();
-        return res.send('Token expired. Please restart the registration process.');
-    }
+  const tokenData = tokenSnap.data();
+  if (tokenData.expiresAt.toMillis() < admin.firestore.Timestamp.now().toMillis()) {
+    await tokenRef.delete();
+    return res.send('Token expired. Please restart registration.');
+  }
 
     res.send(`
     <html>
@@ -189,86 +182,58 @@ app.get('/set-pin/:token', async (req, res) => {
 });
 
 app.post('/set-pin/:token', async (req, res) => {
-    const token = req.params.token;
-    const pin = req.body.pin;
+  const token = req.params.token;
+  const pin = req.body.pin;
 
-    const tokenRef = db.collection('pinTokens').doc(token);
-    const tokenSnap = await tokenRef.get();
-    if (!tokenSnap.exists) return res.send('Invalid or expired token.');
+  const tokenRef = db.collection('pinTokens').doc(token);
+  const tokenSnap = await tokenRef.get();
+  if (!tokenSnap.exists) return res.send('Invalid or expired token.');
 
-    const { phone, firstName, lastName, email } = tokenSnap.data();
+  const { phone, firstName, lastName, email } = tokenSnap.data();
 
-    if (!firstName || !lastName || !email) {
-        return res.send('Error: Missing information. Please restart registration.');
-    }
+  await db.collection('users').doc(phone).set({
+    firstName,
+    lastName,
+    phone,
+    email,
+    pin,
+    createdAt: admin.firestore.FieldValue.serverTimestamp()
+  });
 
-    // Save user
-    await db.collection('users').doc(phone).set({
-        firstName,
-        lastName,
-        phone,
-        email,
-        pin,
-        createdAt: admin.firestore.FieldValue.serverTimestamp()
-    });
+  await tokenRef.delete();
+  await db.collection('flows').doc(phone).delete();
 
-    // Cleanup
-    await tokenRef.delete();
-    await db.collection('flows').doc(phone).delete();
+  try {
+    // Create Paystack customer
+    const customerResponse = await axios.post(
+      "https://api.paystack.co/customer",
+      { email, first_name: firstName, last_name: lastName, phone },
+      { headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` } }
+    );
 
-    try {
-        // Create Paystack customer
-        const customerResponse = await axios.post(
-            "https://api.paystack.co/customer",
-            { email, first_name: firstName, last_name: lastName, phone },
-            {
-                headers: {
-                    Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
-                    "Content-Type": "application/json"
-                }
-            }
-        );
+    const customerCode = customerResponse.data.data.customer_code;
 
-        const customerCode = customerResponse.data.data.customer_code;
+    // Create dedicated account
+    const accountResponse = await axios.post(
+      "https://api.paystack.co/dedicated_account",
+      { customer: customerCode, preferred_bank: "wema-bank" },
+      { headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` } }
+    );
 
-        // Create dedicated account
-        const accountResponse = await axios.post(
-            "https://api.paystack.co/dedicated_account",
-            { customer: customerCode, preferred_bank: "wema-bank" },
-            {
-                headers: {
-                    Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
-                    "Content-Type": "application/json"
-                }
-            }
-        );
+    const accountData = accountResponse.data.data;
 
-        const accountData = accountResponse.data.data;
+    await sendTextMessage(phone,
+      `🎉 ${firstName} ${lastName}, your account is ready!\n` +
+      `🏦 Bank: ${accountData.bank.name}\n` +
+      `💳 Account Name: ${accountData.account_name}\n` +
+      `🔢 Account Number: ${accountData.account_number}`
+    );
 
-        // WhatsApp message
-        await sendTextMessage(phone,
-            `🎉 ${firstName} ${lastName}, your account is ready!\n\n` +
-            `🏦 Bank: ${accountData.bank.name}\n` +
-            `💳 Account Name: ${accountData.account_name}\n` +
-            `🔢 Account Number: ${accountData.account_number}\n\n` +
-            `Keep your PIN safe and do not share it with anyone!`
-        );
-
-        res.json({
-            status: true,
-            message: "PIN set successfully! Account details sent via WhatsApp.",
-            customer: customerResponse.data.data,
-            dedicated_account: accountData
-        });
-
-    } catch (error) {
-        if (error.response) {
-            res.status(error.response.status).json(error.response.data);
-        } else {
-            res.status(500).json({ message: error.message });
-        }
-    }
+    res.json({ status: true, message: 'PIN set successfully!', customer: customerResponse.data.data, dedicated_account: accountData });
+  } catch (err) {
+    res.status(err.response?.status || 500).json(err.response?.data || { message: err.message });
+  }
 });
 
-// Start server
+// --- Export serverless handler ---
 export const handler = serverless(app);
