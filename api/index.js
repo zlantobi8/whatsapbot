@@ -90,6 +90,7 @@ app.get('/webhook', (req, res) => {
 });
 
 // --- Webhook POST ---
+// --- Webhook POST ---
 app.post('/webhook', async (req, res) => {
   const body = req.body;
 
@@ -102,52 +103,78 @@ app.post('/webhook', async (req, res) => {
     const userSnap = await userRef.get();
 
     if (userSnap.exists) {
+      // Existing user
       const userData = userSnap.data();
       await sendTextMessage(from, `Welcome back, ${userData.firstName}! 🎉`);
-    } else {
-      const flowRef = db.collection('flows').doc(from);
-      const flowSnap = await flowRef.get();
-      const flowData = flowSnap.data();
+      return res.sendStatus(200);
+    }
 
-      if (!flowSnap.exists) {
+    const flowRef = db.collection('flows').doc(from);
+    const flowSnap = await flowRef.get();
+    const flowData = flowSnap.data();
+
+    // Step 0: New user, start registration
+    if (!flowSnap.exists) {
+      const greetings = ['hi','hello','hey','yo','sup'];
+      if (greetings.includes(text.toLowerCase())) {
         await sendTextMessage(from, 'Welcome to Zlt Topup! Please enter your FIRST NAME:');
         await flowRef.set({ step: 1 });
-      } else if (flowData.step === 1) {
-        await flowRef.update({ firstName: text, step: 2 });
+        return res.sendStatus(200); // stop processing this message
+      } else {
+        // Optional: treat first message as first name if not a greeting
+        await flowRef.set({ firstName: text, step: 2 });
         await sendTextMessage(from, 'Great! Now please enter your LAST NAME:');
-      } else if (flowData.step === 2) {
-        await flowRef.update({ lastName: text, step: 3 });
-        await sendTextMessage(from, 'Almost done! Please enter your EMAIL:');
-      } else if (flowData.step === 3) {
-        const { firstName, lastName } = flowData;
-        const email = text;
-
-        if (!firstName || !lastName || !email) {
-          await sendTextMessage(from, 'Error: Missing information. Please restart registration.');
-          return;
-        }
-
-        const pinToken = crypto.randomBytes(16).toString('hex');
-        const expiresAt = admin.firestore.Timestamp.fromDate(new Date(Date.now() + 5 * 60 * 1000));
-
-        await db.collection('pinTokens').doc(pinToken).set({
-          phone: from,
-          firstName,
-          lastName,
-          email,
-          expiresAt
-        });
-
-        const pinUrl = `https://whatsapbot.vercel.app/set-pin/${pinToken}`;
-        await sendTextMessage(from, `Almost done! Please set your PIN securely here: ${pinUrl} (expires in 5 minutes)`);
-
-        await flowRef.update({ step: 4 });
+        return res.sendStatus(200);
       }
     }
+
+    // Step 1: Collect first name
+    if (flowData.step === 1) {
+      await flowRef.update({ firstName: text, step: 2 });
+      await sendTextMessage(from, 'Great! Now please enter your LAST NAME:');
+      return res.sendStatus(200);
+    }
+
+    // Step 2: Collect last name
+    if (flowData.step === 2) {
+      await flowRef.update({ lastName: text, step: 3 });
+      await sendTextMessage(from, 'Almost done! Please enter your EMAIL:');
+      return res.sendStatus(200);
+    }
+
+    // Step 3: Collect email and generate PIN token
+    if (flowData.step === 3) {
+      const { firstName, lastName } = flowData;
+      const email = text;
+
+      if (!firstName || !lastName || !email) {
+        await sendTextMessage(from, 'Error: Missing information. Please restart registration.');
+        return res.sendStatus(400);
+      }
+
+      const pinToken = crypto.randomBytes(16).toString('hex');
+      const expiresAt = admin.firestore.Timestamp.fromDate(new Date(Date.now() + 5 * 60 * 1000));
+
+      await db.collection('pinTokens').doc(pinToken).set({
+        phone: from,
+        firstName,
+        lastName,
+        email,
+        expiresAt
+      });
+
+      const pinUrl = `https://whatsapbot.vercel.app/set-pin/${pinToken}`;
+      await sendTextMessage(from, `Almost done! Please set your PIN securely here: ${pinUrl} (expires in 5 minutes)`);
+
+      await flowRef.update({ step: 4 });
+      return res.sendStatus(200);
+    }
+
   }
 
   res.sendStatus(200);
 });
+
 
 // --- PIN setup ---
 app.get('/set-pin/:token', async (req, res) => {
