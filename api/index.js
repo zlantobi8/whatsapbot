@@ -246,4 +246,5 @@ app.post('/set-pin/:token', async (req, res) => {
 });
 
 // --- Export serverless handler ---
-export const handler = serverless(app);
+export default serverless(app);
+
