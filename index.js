@@ -125,7 +125,7 @@ app.post('/webhook', async (req, res) => {
                     expiresAt
                 });
 
-                const pinUrl = `https://silent-ideas-hide.loca.lt/set-pin/${pinToken}`;
+                const pinUrl = `https://whatsapbot.vercel.app/set-pin/${pinToken}`;
                 await sendTextMessage(from, `Almost done! Please set your PIN securely here: ${pinUrl} (expires in 5 minutes)`);
 
                 await flowRef.update({ step: 4 });
