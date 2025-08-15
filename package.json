@@ -1,0 +1,23 @@
+{
+  "name": "whatsapbot",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+     "start": "node index.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "axios": "^1.11.0",
+    "dotenv": "^17.2.1",
+    "express": "^5.1.0",
+    "firebase": "^12.1.0",
+    "firebase-admin": "^13.4.0",
+    "fs": "^0.0.1-security",
+    "node-fetch": "^3.3.2",
+    "whatsapp": "^0.0.5-Alpha"
+  }
+}
