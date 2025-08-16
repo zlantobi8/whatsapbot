@@ -372,15 +372,12 @@ app.post('/set-pin/:token', async (req, res) => {
 });
 
 
-// ✅ Keep raw body for HMAC verification
+// ✅ Register this BEFORE any routes so req.rawBody is always available
 app.use(express.json({
   verify: (req, res, buf) => {
     req.rawBody = buf;
   }
 }));
-
-
-
 
 /* ----------------- PAYSTACK WEBHOOK ----------------- */
 app.post('/webhook/paystack', async (req, res) => {
@@ -409,7 +406,9 @@ app.post('/webhook/paystack', async (req, res) => {
 
     // ✅ Only handle successful charges
     if (event === 'charge.success') {
-      const email = data.customer.email; // from Paystack webhook
+      const email = data.customer.email; // Paystack webhook gives customer email
+      const amountPaid = data.amount / 100; // Paystack sends in kobo
+      const currency = data.currency || "NGN";
 
       // 🔎 Look up user in Firestore by email
       const usersRef = db.collection("users");
@@ -418,35 +417,30 @@ app.post('/webhook/paystack', async (req, res) => {
       if (snapshot.empty) {
         console.log("❌ No matching user found for:", email);
       } else {
-        snapshot.forEach(doc => {
+        snapshot.forEach(async (doc) => {
           const userData = doc.data();
           console.log("✅ User found:", doc.id, userData);
 
-          // Example: get phone number
+          // 📞 User’s WhatsApp phone
           const phoneNumber = userData.phone;
-          console.log("📞 Phone number:", phoneNumber);
-          const amountPaid = data.amount / 100; // Paystack gives amount in kobo
-          const reference = data.reference;
-          const paidAt = new Date(data.paid_at).toLocaleString();
-          const channel = data.channel;
-          const currency = data.currency;
 
+          // 🧾 Receipt message
           const whatsappMessageReceipt =
             `✅ Payment Successful!\n\n` +
             `💰 Amount: ${currency} ${amountPaid.toLocaleString()}\n` +
-            `📌 Reference: ${reference}\n` +
-            `📅 Date: ${paidAt}\n` +
-            `💳 Channel: ${channel}\n\n` +
+            `📌 Reference: ${data.reference}\n` +
+            `📅 Date: ${new Date(data.paid_at).toLocaleString()}\n` +
+            `💳 Channel: ${data.channel}\n\n` +
             `🎉 Thank you, ${userData.firstName}! Your wallet has been credited.`;
 
-          sendTextMessage(userData.phone, whatsappMessageReceipt);
+          await sendTextMessage(phoneNumber, whatsappMessageReceipt);
 
-          // Example: update balance (add credited amount)
-          const amount = data.amount / 100; // Paystack gives kobo
-          const newBalance = (userData.balance || 0) + amount;
+          // 💰 Atomic increment of wallet balance
+          await doc.ref.update({
+            balance: admin.firestore.FieldValue.increment(amountPaid)
+          });
 
-          doc.ref.update({ balance: newBalance });
-          console.log(`💰 Wallet updated: ${newBalance} NGN`);
+          console.log(`💰 Wallet incremented by ${amountPaid} ${currency}`);
         });
       }
     }
@@ -457,7 +451,6 @@ app.post('/webhook/paystack', async (req, res) => {
     res.sendStatus(500);
   }
 });
-
 
 
 
