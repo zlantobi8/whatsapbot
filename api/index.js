@@ -34,9 +34,9 @@ app.use(bodyParser.json());
 
 /* ---------------- ENV ---------------- */
 
-const accessToken   = "EAAPYD7d0GSsBPLv9ZC20ZAlzDFvuuWPNdtnH6hPX0KzoXZA5WlCBFNUkTV5z8PdX41H1ZCtDgbtvsyZBkEondsLLNimWSTNynEGZAd6AEBBZBsTocXqEnvcs4qhdDbqZAZCYpoa2z7BqY6Bf4GW7lb5LUUrAl8KmiDV7xxMaGZAw2BUc3lbYkZA4MsCYscD9eOSqkImv87FOIl9BqHq9iorgNSjaRH406OCkZB1M5r28baFZB8MXAKgZDZD";
+const accessToken = "EAAPYD7d0GSsBPLv9ZC20ZAlzDFvuuWPNdtnH6hPX0KzoXZA5WlCBFNUkTV5z8PdX41H1ZCtDgbtvsyZBkEondsLLNimWSTNynEGZAd6AEBBZBsTocXqEnvcs4qhdDbqZAZCYpoa2z7BqY6Bf4GW7lb5LUUrAl8KmiDV7xxMaGZAw2BUc3lbYkZA4MsCYscD9eOSqkImv87FOIl9BqHq9iorgNSjaRH406OCkZB1M5r28baFZB8MXAKgZDZD";
 const phoneNumberId = process.env.phoneNumberId;   // ensure this key matches your .env
-const verifyToken   = process.env.verifyToken;
+const verifyToken = process.env.verifyToken;
 
 /* ---------------- Helpers ---------------- */
 const GREETINGS = ['hi', 'hello', 'hey', 'yo', 'sup', 'menu'];
@@ -341,7 +341,7 @@ app.post('/set-pin/:token', async (req, res) => {
 
     // Clean up token and any flow
     await tokenRef.delete();
-    await db.collection('flows').doc(phone).delete().catch(() => {});
+    await db.collection('flows').doc(phone).delete().catch(() => { });
 
     // WhatsApp confirmation + show TEXT MENU (not buttons)
     const whatsappMessage =
@@ -372,108 +372,98 @@ app.post('/set-pin/:token', async (req, res) => {
 });
 
 
+// ✅ Keep raw body for HMAC verification
+app.use(express.json({
+  verify: (req, res, buf) => {
+    req.rawBody = buf;
+  }
+}));
 
-app.use(express.json({ verify: (req, res, buf) => { req.rawBody = buf; } }));
 
 
-app.post('/webhook/paystack', bodyParser.raw({ type: 'application/json' }), async (req, res) => {
+
+/* ----------------- PAYSTACK WEBHOOK ----------------- */
+app.post('/webhook/paystack', async (req, res) => {
   try {
     const paystackSignature = req.headers['x-paystack-signature'];
+    if (!paystackSignature) {
+      console.error("❌ Missing signature header");
+      return res.status(400).send("Missing signature");
+    }
 
-    // Verify HMAC signature
+    // ✅ Verify HMAC SHA512
     const hash = crypto
       .createHmac('sha512', process.env.PAYSTACK_SECRET_KEY)
-      .update(req.body) // raw body as Buffer
+      .update(req.rawBody)
       .digest('hex');
 
     if (hash !== paystackSignature) {
-      console.error('❌ Invalid Paystack signature');
-      return res.status(401).send('Invalid signature');
+      console.error("❌ Invalid signature");
+      return res.status(401).send("Invalid signature");
     }
 
-    // Parse JSON after verification
-    const payload = JSON.parse(req.body.toString());
-    const { event, data } = payload;
+    const { event, data } = req.body;
 
-    if (event !== 'charge.success') return res.sendStatus(200);
+    console.log(`✅ Webhook Event: ${event}`);
+    console.log("📦 Data:", data);
 
-    const accountNumber = data.dedicated_account?.account_number;
-    const amount = data.amount / 100; // convert from kobo
-    const txRef = data.reference;
+    // ✅ Only handle successful charges
+    if (event === 'charge.success') {
+      const email = data.customer.email; // from Paystack webhook
 
-    if (!accountNumber) {
-      console.error("❌ No dedicated account number in webhook:", data);
-      return res.sendStatus(400);
+      // 🔎 Look up user in Firestore by email
+      const usersRef = db.collection("users");
+      const snapshot = await usersRef.where("email", "==", email).get();
+
+      if (snapshot.empty) {
+        console.log("❌ No matching user found for:", email);
+      } else {
+        snapshot.forEach(doc => {
+          const userData = doc.data();
+          console.log("✅ User found:", doc.id, userData);
+
+          // Example: get phone number
+          const phoneNumber = userData.phone;
+          console.log("📞 Phone number:", phoneNumber);
+          const amountPaid = data.amount / 100; // Paystack gives amount in kobo
+          const reference = data.reference;
+          const paidAt = new Date(data.paid_at).toLocaleString();
+          const channel = data.channel;
+          const currency = data.currency;
+
+          const whatsappMessageReceipt =
+            `✅ Payment Successful!\n\n` +
+            `💰 Amount: ${currency} ${amountPaid.toLocaleString()}\n` +
+            `📌 Reference: ${reference}\n` +
+            `📅 Date: ${paidAt}\n` +
+            `💳 Channel: ${channel}\n\n` +
+            `🎉 Thank you, ${userData.firstName}! Your wallet has been credited.`;
+
+          sendTextMessage(userData.phone, whatsappMessageReceipt);
+
+          // Example: update balance (add credited amount)
+          const amount = data.amount / 100; // Paystack gives kobo
+          const newBalance = (userData.balance || 0) + amount;
+
+          doc.ref.update({ balance: newBalance });
+          console.log(`💰 Wallet updated: ${newBalance} NGN`);
+        });
+      }
     }
 
-    // Prevent duplicate transactions
-    const txRefDoc = db.collection('transactions').doc(txRef);
-    const txRefSnap = await txRefDoc.get();
-    if (txRefSnap.exists) {
-      console.log('⚠️ Duplicate webhook ignored:', txRef);
-      return res.sendStatus(200);
-    }
-
-    // Find user by dedicated account number
-    const userQuery = await db.collection('users')
-      .where('bank.accountNumber', '==', accountNumber)
-      .limit(1)
-      .get();
-
-    if (userQuery.empty) {
-      console.error('❌ No user found for account:', accountNumber);
-      return res.sendStatus(404);
-    }
-
-    const userDoc = userQuery.docs[0];
-    const userData = userDoc.data();
-
-    // Update user balance
-    await userDoc.ref.update({
-      balance: admin.firestore.FieldValue.increment(amount)
-    });
-
-    // Fetch updated balance
-    const updatedUserSnap = await userDoc.ref.get();
-    const updatedUserData = updatedUserSnap.data();
-    const newBalance = updatedUserData.balance;
-
-    // Save global transaction
-    await txRefDoc.set({
-      userId: userDoc.id,
-      amount,
-      type: 'credit',
-      source: 'Paystack DVA',
-      accountNumber,
-      createdAt: admin.firestore.FieldValue.serverTimestamp()
-    });
-
-    // Save transaction under user's subcollection
-    await userDoc.ref.collection('transactions').doc(txRef).set({
-      amount,
-      type: 'credit',
-      source: 'Paystack DVA',
-      reference: txRef,
-      accountNumber,
-      createdAt: admin.firestore.FieldValue.serverTimestamp()
-    });
-
-    // Send WhatsApp notification with updated balance
-    const whatsappMessage =
-      `🎉 ${userData.firstName}, your account has been credited!\n` +
-      `💰 Amount: ₦${amount.toLocaleString()}\n` +
-      `💳 New Balance: ₦${newBalance.toLocaleString()}`;
-
-    await sendTextMessage(userData.phone, whatsappMessage);
-
-    console.log(`✅ Payment of ₦${amount} credited to ${userData.firstName}`);
     res.sendStatus(200);
-
   } catch (err) {
-    console.error('❌ Paystack Webhook Error:', err.response?.data || err.message);
+    console.error("🔥 Webhook error:", err.message);
     res.sendStatus(500);
   }
 });
+
+
+
+
+
+
+
 
 
 /* ---------------- Server ---------------- */
