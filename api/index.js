@@ -33,7 +33,7 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 
 /* ---------------- ENV ---------------- */
-const accessToken   = process.env.ACCESS_TOKEN;
+const accessToken   = "EAAPYD7d0GSsBPDY3fQqANBDIuhZCGhmBfxSHG3kFDtAd7VqCHZAjIZCATViJBjzFcQTaIJeg5bXjTDZCpUg3ZC356ii478Gx7bThRQSHl6DAdoyrgfU3T2TmPAhGeWYpxKd3DtSsozZC19jHvKzzKTpjamQ5UHBZA82IKEeohB6rY6epgSWt06GTt2qXMadQURQ36jF1vYHWCIsgAcyiSCqakgsMPByrid3ZAOhwZA6jZAH9w9ZBVgZD";
 const phoneNumberId = process.env.phoneNumberId;   // ensure this key matches your .env
 const verifyToken   = process.env.verifyToken;
 
@@ -388,7 +388,7 @@ function verifyPaystackSignature(req, res, next) {
   }
   next();
 }
-// EAAPYD7d0GSsBPPXShCTGby6IPKCVsk0icZBZBnSmRS8XVgqxnZAzNbFAHr0PKcXYnydQXf1RAXEyn458r8IGHLKxZAlrVju1QLKLZB4A6sgV5Qr9v4wf6VSW9xBvnIxyeZCiyTqvoZCZBalzZCZAfqvtDSfd1azhEoyfMh9PELmDUaXok9jMDasUZAU4sdJUNrSe30TLLLZAoCePOchSsjl4MXDU0bJcs3QJKKgyH9smVg40SO1tFQZDZD
+// 
 app.post('/webhook/paystack', verifyPaystackSignature, async (req, res) => {
   try {
     const { event, data } = req.body;
