@@ -404,32 +404,44 @@ app.post('/webhook/paystack', async (req, res) => {
     console.log(`✅ Webhook Event: ${event}`);
     console.log("📦 Data:", data);
 
-    // ✅ Only handle successful charges
     if (event === 'charge.success') {
-      const email = data.customer.email; // Paystack webhook gives customer email
       const amountPaid = data.amount / 100; // Paystack sends in kobo
       const currency = data.currency || "NGN";
 
-      // 🔎 Look up user in Firestore by email
-      const usersRef = db.collection("users");
-      const snapshot = await usersRef.where("email", "==", email).get();
+      // 🔑 If it's a dedicated account transfer, Paystack puts info here
+      const dedicatedAccount = data.authorization?.receiver_bank_account_number;
 
-      if (snapshot.empty) {
-        console.log("❌ No matching user found for:", email);
+      let userSnapshot;
+
+      if (dedicatedAccount) {
+        // Lookup by dedicated account number
+        userSnapshot = await db.collection("users")
+          .where("dedicatedAccountNumber", "==", dedicatedAccount)
+          .get();
       } else {
-        snapshot.forEach(async (doc) => {
+        // Fallback: Lookup by email (card/checkout payments)
+        const email = data.customer?.email;
+        userSnapshot = await db.collection("users")
+          .where("email", "==", email)
+          .get();
+      }
+
+      if (userSnapshot.empty) {
+        console.log("❌ No matching user found for this transaction");
+      } else {
+        userSnapshot.forEach(async (doc) => {
           const userData = doc.data();
           console.log("✅ User found:", doc.id, userData);
 
-          // 📞 User’s WhatsApp phone
           const phoneNumber = userData.phone;
 
-          // 🧾 Receipt message
+          // 🧾 WhatsApp receipt message
           const whatsappMessageReceipt =
             `✅ Payment Successful!\n\n` +
             `💰 Amount: ${currency} ${amountPaid.toLocaleString()}\n` +
             `📌 Reference: ${data.reference}\n` +
             `📅 Date: ${new Date(data.paid_at).toLocaleString()}\n` +
+            `🏦 From: ${data.authorization?.sender_name || "Unknown"}\n` +
             `💳 Channel: ${data.channel}\n\n` +
             `🎉 Thank you, ${userData.firstName}! Your wallet has been credited.`;
 
