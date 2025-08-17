@@ -430,45 +430,36 @@ app.post('/set-pin/:token', async (req, res) => {
 });
 
 
-// ✅ Middleware to capture rawBody for Paystack
-app.use(express.json({
-  verify: (req, res, buf) => {
-    req.rawBody = buf;
-  }
-}));
-
-app.use(bodyParser.raw({ type: 'application/json' }));
-
 /* ---------------- Paystack Webhook ---------------- */
-app.post('/webhook/paystack', async (req, res) => {
+app.post('/webhook/paystack', bodyParser.raw({ type: 'application/json' }), async (req, res) => {
   try {
     const paystackSignature = req.headers['x-paystack-signature'];
 
-    // Strict signature verification
+    // Verify signature
     const hash = crypto
       .createHmac('sha512', process.env.PAYSTACK_SECRET_KEY)
-      .update(req.rawBody)
+      .update(req.body)
       .digest('hex');
 
     if (hash !== paystackSignature) {
-      console.warn('⚠️ Invalid Paystack signature. Rejecting webhook.');
+      console.warn('⚠️ Invalid Paystack signature');
       return res.sendStatus(400);
     }
 
-    // Immediately acknowledge receipt
+    // Respond immediately to avoid 504
     res.sendStatus(200);
 
-    // Parse event safely
-    const event = JSON.parse(req.rawBody.toString());
+    // Parse webhook payload
+    const event = JSON.parse(req.body.toString());
 
+    // Only handle successful charges on dedicated accounts
     if (event.event !== 'charge.success' || event.data.channel !== 'dedicated_nuban') return;
 
     const data = event.data;
     const receiverAccount = data.metadata?.receiver_account_number;
     if (!receiverAccount) return console.warn('No receiver account in metadata.');
 
-    const amount = data.amount / 100; // kobo → naira
-    const currency = data.currency || 'NGN';
+    const amount = data.amount / 100; // Convert kobo → Naira
     const reference = data.reference;
     const senderName = data.authorization?.sender_name || 'Unknown';
     const senderBank = data.authorization?.sender_bank || 'Unknown';
@@ -476,77 +467,78 @@ app.post('/webhook/paystack', async (req, res) => {
 
     console.log(`💰 Deposit received for account: ${receiverAccount}, reference: ${reference}`);
 
-    // Find the user by dedicated account number
-    const userSnap = await db.collection('users')
-      .where('bank.accountNumber', '==', receiverAccount)
-      .limit(1)
-      .get();
+    // Process Firestore asynchronously
+    (async () => {
+      try {
+        const userSnap = await db.collection('users')
+          .where('bank.accountNumber', '==', receiverAccount)
+          .limit(1)
+          .get();
 
-    if (userSnap.empty) return console.warn(`No user found for account ${receiverAccount}.`);
+        if (userSnap.empty) return console.warn(`No user found for account ${receiverAccount}.`);
 
-    const userDoc = userSnap.docs[0];
-    const userRef = userDoc.ref;
+        const userDoc = userSnap.docs[0];
+        const userRef = userDoc.ref;
 
-    // Idempotency check
-    const existingTxSnap = await userRef.collection('transactions')
-      .where('reference', '==', reference)
-      .limit(1)
-      .get();
+        // Idempotency check
+        const existingTxSnap = await userRef.collection('transactions')
+          .where('reference', '==', reference)
+          .limit(1)
+          .get();
 
-    if (!existingTxSnap.empty) {
-      console.log(`✅ Transaction ${reference} already processed. Skipping.`);
-      return;
-    }
+        if (!existingTxSnap.empty) {
+          console.log(`✅ Transaction ${reference} already processed. Skipping.`);
+          return;
+        }
 
-    // Firestore transaction
-    try {
-      const newBalance = await db.runTransaction(async (tx) => {
-        const userData = (await tx.get(userRef)).data();
-        const updatedBalance = (userData.balance || 0) + amount;
+        // Firestore transaction to update balance and log transaction
+        const newBalance = await db.runTransaction(async (tx) => {
+          const userData = (await tx.get(userRef)).data();
+          const updatedBalance = (userData.balance || 0) + amount;
 
-        tx.update(userRef, { balance: updatedBalance });
-        tx.set(userRef.collection('transactions').doc(reference), { // use reference as doc ID
-          type: 'deposit',
-          amount,
-          currency,
-          reference,
-          senderName,
-          senderBank,
-          receiverAccount,
-          paidAt: admin.firestore.Timestamp.fromDate(paidAt),
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          status: 'success'
+          tx.update(userRef, { balance: updatedBalance });
+          tx.set(userRef.collection('transactions').doc(reference), {
+            type: 'deposit',
+            amount,
+            reference,
+            senderName,
+            senderBank,
+            receiverAccount,
+            paidAt: admin.firestore.Timestamp.fromDate(paidAt),
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            status: 'success'
+          });
+
+          return updatedBalance;
         });
 
-        return updatedBalance;
-      });
+        // Send WhatsApp receipt (async, don't block webhook)
+        try {
+          const message =
+            `💰 *Payment Received!*\n\n` +
+            `Amount: ₦${amount.toLocaleString()}\n` +
+            `From: ${senderName} (${senderBank})\n` +
+            `Reference: ${reference}\n` +
+            `Paid At: ${paidAt.toLocaleString()}\n` +
+            `\n🏦 New Balance: ₦${newBalance.toLocaleString()}\n` +
+            `Thank you for using Zlt Topup!`;
 
-      // WhatsApp receipt
-      try {
-        const message =
-          `💰 *Payment Received!*\n\n` +
-          `Amount: ₦${amount.toLocaleString()}\n` +
-          `From: ${senderName} (${senderBank})\n` +
-          `Reference: ${reference}\n` +
-          `Paid At: ${paidAt.toLocaleString()}\n` +
-          `\n🏦 New Balance: ₦${newBalance.toLocaleString()}\n` +
-          `Thank you for using Zlt Topup!`;
+          await sendTextMessage(userDoc.data().phone, message);
+          console.log(`📲 WhatsApp receipt sent to ${userDoc.data().phone}`);
+        } catch (waErr) {
+          console.error('🔥 WhatsApp sending error:', waErr);
+        }
 
-        await sendTextMessage(userDoc.data().phone, message);
-        console.log(`📲 WhatsApp receipt sent to ${userDoc.data().phone}`);
-      } catch (waErr) {
-        console.error('🔥 WhatsApp sending error:', waErr);
+      } catch (err) {
+        console.error('🔥 Error processing Paystack webhook:', err);
       }
-
-    } catch (txErr) {
-      console.error('🔥 Firestore transaction error:', txErr);
-    }
+    })();
 
   } catch (err) {
     console.error('🚨 Paystack webhook error:', err);
+    // Already responded to avoid 504
   }
 });
-
 
 
 /* ---------------- Server ---------------- */
