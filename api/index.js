@@ -32,7 +32,7 @@ const app = express();
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 
-/* ---------------- ENV ---------------- */
+/* ---------------- ENV ------------ */
 
 const accessToken = "EAAPYD7d0GSsBPGnmLRG4GSEuCxeGqfEEwinhmssu6Sg4VepSE3HbxEhaRiuHZCHwwO9rkvwAOAaMuQ8WAVTeXZAKp7bfu2s2tHUYssBWO60GSpXmqYIQ9suMXY9nbCkNg4WwEjg6UPf0IeUSyFzCLlJlnYnixHlx1natkwRmbZCRJYpUes1xettSRQGZBxrnzcxXPi9pgliJJfIH31NIpr6EKY9KSOp5BvZBzi6pojQxXsAZDZD";
 const phoneNumberId = process.env.phoneNumberId;   // ensure this key matches your .env
