@@ -541,6 +541,31 @@ app.post('/webhook/paystack', bodyParser.raw({ type: 'application/json' }), asyn
 });
 
 
+
+
+
+
+
+app.get("/privacy-policy", (req, res) => {
+  res.send(`
+    <h1>Privacy Policy for ZLt Topup</h1>
+    <p>At ZLt Topup, we respect your privacy. We only collect basic information necessary to provide our services, 
+    such as your name, email address, and transaction details. We do not share your data with third parties 
+    except as required to process payments and comply with the law.</p>
+    <p>If you have questions about our Privacy Policy, contact us at: support@zlttopup.com</p>
+  `);
+});
+
+/* ---------------- Data Deletion Endpoint ---------------- */
+app.get("/delete-user-data", (req, res) => {
+  res.send(`
+    <h1>User Data Deletion</h1>
+    <p>If you would like to request deletion of your data associated with ZLt Topup, please send an email to 
+    support@zlttopup.com with your registered email address. We will process your request within 7 business days.</p>
+  `);
+});
+
+
 /* ---------------- Server ---------------- */
 app.listen(3000, () => {
   console.log('🚀 Server running on http://localhost:3000');
