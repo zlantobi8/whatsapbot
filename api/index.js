@@ -8,7 +8,7 @@ import bodyParser from 'body-parser';
 
 dotenv.config();
 
-/* ---------------- Firebase ---------------- */
+/* ---------------- Firebase --------------- */
 admin.initializeApp({
   credential: admin.credential.cert({
     type: process.env.FIREBASE_TYPE,
