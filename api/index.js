@@ -546,25 +546,88 @@ app.post('/webhook/paystack', bodyParser.raw({ type: 'application/json' }), asyn
 
 
 
+/* ---------------- Privacy Policy Endpoint ---------------- */
 app.get("/privacy-policy", (req, res) => {
-  res.send(`
-    <h1>Privacy Policy for ZLt Topup</h1>
-    <p>At ZLt Topup, we respect your privacy. We only collect basic information necessary to provide our services, 
-    such as your name, email address, and transaction details. We do not share your data with third parties 
-    except as required to process payments and comply with the law.</p>
-    <p>If you have questions about our Privacy Policy, contact us at: support@zlttopup.com</p>
+  res.setHeader("Content-Type", "text/html");
+  res.status(200).send(`
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+      <title>Privacy Policy - ZLt Topup</title>
+      <style>
+        body {
+          font-family: Arial, sans-serif;
+          line-height: 1.6;
+          margin: 2rem;
+          background: #f9f9f9;
+          color: #333;
+        }
+        h1 { color: #0d6efd; }
+      </style>
+    </head>
+    <body>
+      <h1>Privacy Policy</h1>
+      <p>At <strong>ZLt Topup</strong>, we value your privacy. This Privacy Policy explains how we collect, use, and protect your personal information.</p>
+      
+      <h2>Information We Collect</h2>
+      <p>We may collect your email, name, and payment details when you use our platform.</p>
+      
+      <h2>How We Use Information</h2>
+      <p>Your information is used solely for account creation, service delivery, and transaction verification.</p>
+      
+      <h2>Security</h2>
+      <p>We implement industry-standard security to protect your data against unauthorized access.</p>
+      
+      <h2>Contact Us</h2>
+      <p>If you have any questions, contact us at <a href="mailto:zlttopup@gmail.com">zlttopup@gmail.com</a>.</p>
+    </body>
+    </html>
   `);
 });
 
 /* ---------------- Data Deletion Endpoint ---------------- */
 app.get("/delete-user-data", (req, res) => {
-  res.send(`
-    <h1>User Data Deletion</h1>
-    <p>If you would like to request deletion of your data associated with ZLt Topup, please send an email to 
-    support@zlttopup.com with your registered email address. We will process your request within 7 business days.</p>
+  res.setHeader("Content-Type", "text/html");
+  res.status(200).send(`
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="UTF-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+      <title>Data Deletion - ZLt Topup</title>
+      <style>
+        body {
+          font-family: Arial, sans-serif;
+          line-height: 1.6;
+          margin: 2rem;
+          background: #f9f9f9;
+          color: #333;
+        }
+        h1 { color: #dc3545; }
+      </style>
+    </head>
+    <body>
+      <h1>Data Deletion Instructions</h1>
+      <p>At <strong>ZLt Topup</strong>, we respect your privacy and give you full control over your data.</p>
+      
+      <h2>How to Request Deletion</h2>
+      <p>If you would like to delete your account and associated data, please send an email to 
+      <a href="mailto:zlttopup@gmail.com">zlttopup@gmail.com</a> using your registered email address.</p>
+      
+      <p>Once we receive your request, we will verify your identity and process the deletion within <strong>7 business days</strong>.</p>
+      
+      <h2>Automatic Deletion</h2>
+      <p>If you stop using our services for more than 12 months, we may automatically delete your data for security and compliance purposes.</p>
+      
+      <h2>Contact Us</h2>
+      <p>For any questions about your data or this deletion process, please contact us at 
+      <a href="mailto:zlttopup@gmail.com">zlttopup@gmail.com</a>.</p>
+    </body>
+    </html>
   `);
 });
-
 
 /* ---------------- Server ---------------- */
 app.listen(3000, () => {
