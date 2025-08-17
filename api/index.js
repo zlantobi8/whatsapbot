@@ -34,7 +34,7 @@ app.use(bodyParser.json());
 
 /* ---------------- ENV ---------------- */
 
-const accessToken = "EAAPYD7d0GSsBPOdEdFvechvXJ5h8heCBL5ZBTGOOJZB92AcJ4wMNs5rcEynZBANlz512pzMQ8NoeZCCRl6AjCqiIaQOrIvfteyuwZAVEKJNDFIP1ooPl99dEAPcecDcaq9Tn3tiqvKmMI91GGa2505C8rXWonAx1xZBU1dysrHuqcy8nOoIDCdyeZB1cQYAyi9ZCUpsZCOR9u9UJR6IbBGOT7f6EM9AyqPVdWfOb2ej3AWgACaAZDZD";
+const accessToken = "EAAPYD7d0GSsBPPxcOrOgS3xzvdD6BrtU9eVBxVou54zw8xyi2Uv93Kif2sbcSpdZAr3RLXIYo2CsV1cmXuXSChxlq9K8VAoBMc3HDZBBgFoz3tcCU5TdafxQw43KfmYMzHJBijbxC0UbYjsXYxdEcaNsjMG269DaWUsV7w6ZA0BqDjS8pSZA4oLBm6WqDR6wyXyH0N3UuHCxpjs1UqCH9wfX9j3MBjEbxgDTk3DtwEQDOgZDZD";
 const phoneNumberId = process.env.phoneNumberId;   // ensure this key matches your .env
 const verifyToken = process.env.verifyToken;
 
@@ -134,6 +134,9 @@ app.get('/webhook', (req, res) => {
 });
 
 /* ---------------- Webhook POST ---------------- */
+const FLOW_EXPIRATION_MS = 15 * 60 * 1000; // 15 minutes
+const PIN_EXPIRATION_MS = 5 * 60 * 1000;   // 5 minutes
+
 app.post('/webhook', async (req, res) => {
   const body = req.body;
   try {
@@ -148,102 +151,157 @@ app.post('/webhook', async (req, res) => {
     const userRef = db.collection('users').doc(from);
     const flowRef = db.collection('flows').doc(from);
 
-    const [userSnap, flowSnap] = await Promise.all([userRef.get(), flowRef.get()]);
+    // ---------- CLEANUP EXPIRED FLOWS ----------
+    const flowSnap = await flowRef.get();
+    let flowData = flowSnap.exists ? flowSnap.data() : null;
+
+    if (flowData?.updatedAt) {
+      const now = Date.now();
+      const updatedTime = flowData.updatedAt.toMillis();
+      if (now - updatedTime > FLOW_EXPIRATION_MS) {
+        await flowRef.delete();
+        flowData = null;
+        await sendTextMessage(from, '⏰ Your previous signup session expired. Don’t worry, let’s start fresh!');
+      }
+    }
+
+    // ---------- CLEANUP EXPIRED PIN TOKENS ----------
+    const pinTokensSnap = await db.collection('pinTokens')
+      .where('phone', '==', from)
+      .get();
+
+    pinTokensSnap.forEach(async (doc) => {
+      const tokenData = doc.data();
+      if (tokenData.expiresAt.toMillis() < Date.now()) {
+        await db.collection('pinTokens').doc(doc.id).delete();
+      }
+    });
+
+    const userSnap = await userRef.get();
     const userExists = userSnap.exists;
-    const userData = userExists ? userSnap.data() : null;
-    const flowData = flowSnap.exists ? (flowSnap.data() || {}) : {};
 
-    /* ---------- EXISTING USER: show menu / handle menu ---------- */
+    /* ---------- EXISTING USER ---------- */
     if (userExists) {
-      // Any greeting or the word "menu" => show menu
       if (GREETINGS.includes(lowerText)) {
-        await sendMainMenu(from, userData.firstName);
+        await sendMainMenu(from, userSnap.data().firstName);
         return res.sendStatus(200);
       }
-      // Handle menu choice by number
-      await handleMenuChoice(lowerText, from, userData);
+      await handleMenuChoice(lowerText, from, userSnap.data());
       return res.sendStatus(200);
     }
 
-    /* ---------- NEW USER REGISTRATION FLOW ---------- */
-
-    // If no flow yet, start it. Reject greetings as first name.
-    if (!flowSnap.exists) {
-      if (GREETINGS.includes(lowerText) || !isValidName(text)) {
-        await flowRef.set({ step: 1 });
-        await sendTextMessage(from, 'Welcome to Zlt Topup! Please enter your FIRST NAME:');
-        return res.sendStatus(200);
-      }
-      // Non-greeting and valid name: accept as first name
-      await flowRef.set({ step: 2, firstName: text });
-      await sendTextMessage(from, 'Great! Now please enter your LAST NAME:');
-      return res.sendStatus(200);
-    }
-
-    // Step 1: Expect FIRST NAME
-    if (flowData.step === 1) {
-      if (GREETINGS.includes(lowerText) || !isValidName(text)) {
-        await sendTextMessage(from, 'Please enter a valid FIRST NAME (letters only):');
-        return res.sendStatus(200);
-      }
-      await flowRef.update({ step: 2, firstName: text });
-      await sendTextMessage(from, 'Great! Now please enter your LAST NAME:');
-      return res.sendStatus(200);
-    }
-
-    // Step 2: Expect LAST NAME
-    if (flowData.step === 2) {
-      if (GREETINGS.includes(lowerText) || !isValidName(text)) {
-        await sendTextMessage(from, 'Please enter a valid LAST NAME (letters only):');
-        return res.sendStatus(200);
-      }
-      await flowRef.update({ step: 3, lastName: text });
-      await sendTextMessage(from, 'Almost done! Please enter your EMAIL:');
-      return res.sendStatus(200);
-    }
-
-    // Step 3: Expect EMAIL -> generate PIN token + link
-    if (flowData.step === 3) {
-      if (!isValidEmail(text)) {
-        await sendTextMessage(from, '❌ Invalid email. Please enter a valid EMAIL:');
-        return res.sendStatus(200);
-      }
-
-      const { firstName, lastName } = flowData;
-      const email = text;
-      const pinToken = crypto.randomBytes(16).toString('hex');
-      const expiresAt = admin.firestore.Timestamp.fromDate(new Date(Date.now() + 5 * 60 * 1000));
-
-      await db.collection('pinTokens').doc(pinToken).set({
-        phone: from, firstName, lastName, email, expiresAt
-      });
-
-      const pinUrl = `https://whatsapbot.vercel.app/set-pin/${pinToken}`;
+    /* ---------- NEW USER FLOW ---------- */
+    if (!flowData) {
+      await flowRef.set({ step: 1, updatedAt: admin.firestore.Timestamp.now() });
       await sendTextMessage(
         from,
-        `Almost done! Please set your 4-digit PIN here within 5 minutes:\n${pinUrl}`
+        `👋 Hello and welcome to *Zlt Topup*! \n\nWe are super excited to have you on board. To get started, let's create your account step by step. 🛡️\n\nFirst, may I know your *FIRST NAME*?`
       );
-
-      // Keep flow so user can resume if needed; do not write to users yet
-      await flowRef.update({ step: 4, awaitingPin: true });
       return res.sendStatus(200);
     }
 
-    // Step 4: Waiting for PIN to be set via link — if they text here, guide them.
+    /* ---------- STEP 1: FIRST NAME ---------- */
+    if (flowData.step === 1) {
+      if (GREETINGS.includes(lowerText) || !isValidName(text)) {
+        await sendTextMessage(from, '❌ Please enter a valid FIRST NAME (letters only, no numbers or symbols):');
+        return res.sendStatus(200);
+      }
+      await flowRef.update({ step: 2, firstName: text.trim(), updatedAt: admin.firestore.Timestamp.now() });
+      await sendTextMessage(from, `🌟 Great, *${text.trim()}*! Now, what is your *LAST NAME*?`);
+      return res.sendStatus(200);
+    }
+
+    /* ---------- STEP 2: LAST NAME ---------- */
+    if (flowData.step === 2) {
+      if (GREETINGS.includes(lowerText) || !isValidName(text)) {
+        await sendTextMessage(from, '❌ Please enter a valid LAST NAME (letters only, no numbers or symbols):');
+        return res.sendStatus(200);
+      }
+
+      const firstName = flowData.firstName.trim();
+      const lastName = text.trim();
+
+      const nameExistsQuery = await db.collection('users')
+        .where('firstName', '==', firstName)
+        .where('lastName', '==', lastName)
+        .limit(1)
+        .get();
+
+      if (!nameExistsQuery.empty) {
+        await sendTextMessage(from, '⚠️ Someone with this name already exists. Please enter a different LAST NAME:');
+        return res.sendStatus(200);
+      }
+
+      await flowRef.update({ step: 3, lastName, updatedAt: admin.firestore.Timestamp.now() });
+      await sendTextMessage(from, `Awesome! Almost done. Now, please provide your *EMAIL* so we can secure your account. ✉️`);
+      return res.sendStatus(200);
+    }
+
+    /* ---------- STEP 3: EMAIL ---------- */
+    if (flowData.step === 3) {
+      if (!isValidEmail(text)) {
+        await sendTextMessage(from, '❌ Invalid email format. Please enter a valid EMAIL:');
+        return res.sendStatus(200);
+      }
+
+      const email = text.toLowerCase().trim();
+      const { firstName, lastName } = flowData;
+
+      await db.runTransaction(async (tx) => {
+        const emailQuery = await tx.get(db.collection('users').where('email', '==', email).limit(1));
+        if (!emailQuery.empty) throw new Error('email_exists');
+
+        const nameQuery = await tx.get(db.collection('users')
+          .where('firstName', '==', firstName)
+          .where('lastName', '==', lastName)
+          .limit(1));
+        if (!nameQuery.empty) throw new Error('name_exists');
+
+        const pinToken = crypto.randomBytes(16).toString('hex');
+        const expiresAt = admin.firestore.Timestamp.fromDate(new Date(Date.now() + PIN_EXPIRATION_MS));
+
+        tx.set(db.collection('pinTokens').doc(pinToken), {
+          phone: from, firstName, lastName, email, expiresAt
+        });
+
+        await sendTextMessage(
+          from,
+          `🎉 Perfect! You're almost ready. Please set your 4-digit PIN using this secure link within 5 minutes:\nhttps://whatsapbot.vercel.app/set-pin/${pinToken}`
+        );
+
+        tx.update(flowRef, { step: 4, awaitingPin: true, updatedAt: admin.firestore.Timestamp.now() });
+      }).catch(async (err) => {
+        if (err.message === 'email_exists') {
+          await sendTextMessage(from, '❌ This email is already registered. Please enter a different EMAIL:');
+        } else if (err.message === 'name_exists') {
+          await sendTextMessage(from, '⚠️ Someone with this name already exists. Please enter a different LAST NAME:');
+          await flowRef.update({ step: 2, updatedAt: admin.firestore.Timestamp.now() });
+        } else {
+          console.error(err);
+          await sendTextMessage(from, '❌ An error occurred. Please try again.');
+        }
+      });
+
+      return res.sendStatus(200);
+    }
+
+    /* ---------- STEP 4: PIN ---------- */
     if (flowData.step === 4) {
       await sendTextMessage(
         from,
-        `Please open the link we sent to set your PIN. If it expired, reply "restart" to start again.`
+        `🔒 Please open the secure link we sent to set your PIN. If it expired, reply "restart" to start again.`
       );
       return res.sendStatus(200);
     }
 
     return res.sendStatus(200);
+
   } catch (err) {
     console.error('Webhook POST error:', err);
     return res.status(500).json({ error: err.message });
   }
 });
+
 
 /* ---------------- PIN Pages ---------------- */
 app.get('/set-pin/:token', async (req, res) => {
@@ -372,54 +430,43 @@ app.post('/set-pin/:token', async (req, res) => {
 });
 
 
-// ✅ Register this BEFORE any routes so req.rawBody is always available
+// ✅ Middleware to capture rawBody for Paystack
 app.use(express.json({
   verify: (req, res, buf) => {
     req.rawBody = buf;
   }
 }));
 
-/* ----------------- PAYSTACK WEBHOOK ----------------- */
+// ---------------- Paystack Webhook ----------------
 app.post('/webhook/paystack', async (req, res) => {
   try {
     const paystackSignature = req.headers['x-paystack-signature'];
-    if (!paystackSignature) {
-      console.error("❌ Missing signature header");
-      return res.status(400).send("Missing signature");
-    }
+    if (!paystackSignature) return res.status(400).send("Missing signature");
 
     // ✅ Verify HMAC SHA512
     const hash = crypto
       .createHmac('sha512', process.env.PAYSTACK_SECRET_KEY)
-      .update(req.rawBody)
+      .update(req.rawBody) // use rawBody here
       .digest('hex');
 
-    if (hash !== paystackSignature) {
-      console.error("❌ Invalid signature");
-      return res.status(401).send("Invalid signature");
-    }
+    if (hash !== paystackSignature) return res.status(401).send("Invalid signature");
 
     const { event, data } = req.body;
-
-    console.log(`✅ Webhook Event: ${event}`);
-    console.log("📦 Data:", data);
+    console.log(`✅ Webhook Event: ${event}`, data);
 
     if (event === 'charge.success') {
-      const amountPaid = data.amount / 100; // Paystack sends in kobo
+      const amountPaid = data.amount / 100; // kobo → Naira
       const currency = data.currency || "NGN";
-
-      // 🔑 If it's a dedicated account transfer, Paystack puts info here
-      const dedicatedAccount = data.authorization?.receiver_bank_account_number;
+      const dedicatedAccountNumber = data.authorization?.receiver_bank_account_number;
 
       let userSnapshot;
 
-      if (dedicatedAccount) {
-        // Lookup by dedicated account number
+      if (dedicatedAccountNumber) {
+        // ✅ Correct Firestore query to nested field
         userSnapshot = await db.collection("users")
-          .where("dedicatedAccountNumber", "==", dedicatedAccount)
+          .where("bank.accountNumber", "==", dedicatedAccountNumber)
           .get();
       } else {
-        // Fallback: Lookup by email (card/checkout payments)
         const email = data.customer?.email;
         userSnapshot = await db.collection("users")
           .where("email", "==", email)
@@ -427,32 +474,24 @@ app.post('/webhook/paystack', async (req, res) => {
       }
 
       if (userSnapshot.empty) {
-        console.log("❌ No matching user found for this transaction");
+        console.log("❌ No matching user found");
       } else {
         userSnapshot.forEach(async (doc) => {
           const userData = doc.data();
-          console.log("✅ User found:", doc.id, userData);
-
           const phoneNumber = userData.phone;
 
-          // 🧾 WhatsApp receipt message
-          const whatsappMessageReceipt =
-            `✅ Payment Successful!\n\n` +
-            `💰 Amount: ${currency} ${amountPaid.toLocaleString()}\n` +
-            `📌 Reference: ${data.reference}\n` +
-            `📅 Date: ${new Date(data.paid_at).toLocaleString()}\n` +
-            `🏦 From: ${data.authorization?.sender_name || "Unknown"}\n` +
-            `💳 Channel: ${data.channel}\n\n` +
-            `🎉 Thank you, ${userData.firstName}! Your wallet has been credited.`;
+          // WhatsApp receipt
+          await sendTextMessage(
+            phoneNumber,
+            `✅ Payment Successful!\n\n💰 Amount: ${currency} ${amountPaid.toLocaleString()}\n📌 Reference: ${data.reference}\n🎉 Thank you, ${userData.firstName}! Your wallet has been credited.`
+          );
 
-          await sendTextMessage(phoneNumber, whatsappMessageReceipt);
-
-          // 💰 Atomic increment of wallet balance
+          // Increment wallet
           await doc.ref.update({
             balance: admin.firestore.FieldValue.increment(amountPaid)
           });
 
-          console.log(`💰 Wallet incremented by ${amountPaid} ${currency}`);
+          console.log(`💰 Wallet incremented for ${phoneNumber}`);
         });
       }
     }
@@ -463,10 +502,6 @@ app.post('/webhook/paystack', async (req, res) => {
     res.sendStatus(500);
   }
 });
-
-
-
-
 
 
 
