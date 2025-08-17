@@ -437,72 +437,115 @@ app.use(express.json({
   }
 }));
 
-// ---------------- Paystack Webhook ----------------
+app.use(bodyParser.raw({ type: 'application/json' }));
+
+/* ---------------- Paystack Webhook ---------------- */
 app.post('/webhook/paystack', async (req, res) => {
   try {
     const paystackSignature = req.headers['x-paystack-signature'];
-    if (!paystackSignature) return res.status(400).send("Missing signature");
 
-    // ✅ Verify HMAC SHA512
+    // Strict signature verification
     const hash = crypto
       .createHmac('sha512', process.env.PAYSTACK_SECRET_KEY)
-      .update(req.rawBody) // use rawBody here
+      .update(req.rawBody)
       .digest('hex');
 
-    if (hash !== paystackSignature) return res.status(401).send("Invalid signature");
-
-    const { event, data } = req.body;
-    console.log(`✅ Webhook Event: ${event}`, data);
-
-    if (event === 'charge.success') {
-      const amountPaid = data.amount / 100; // kobo → Naira
-      const currency = data.currency || "NGN";
-      const dedicatedAccountNumber = data.authorization?.receiver_bank_account_number;
-
-      let userSnapshot;
-
-      if (dedicatedAccountNumber) {
-        // ✅ Correct Firestore query to nested field
-        userSnapshot = await db.collection("users")
-          .where("bank.accountNumber", "==", dedicatedAccountNumber)
-          .get();
-      } else {
-        const email = data.customer?.email;
-        userSnapshot = await db.collection("users")
-          .where("email", "==", email)
-          .get();
-      }
-
-      if (userSnapshot.empty) {
-        console.log("❌ No matching user found");
-      } else {
-        userSnapshot.forEach(async (doc) => {
-          const userData = doc.data();
-          const phoneNumber = userData.phone;
-
-          // WhatsApp receipt
-          await sendTextMessage(
-            phoneNumber,
-            `✅ Payment Successful!\n\n💰 Amount: ${currency} ${amountPaid.toLocaleString()}\n📌 Reference: ${data.reference}\n🎉 Thank you, ${userData.firstName}! Your wallet has been credited.`
-          );
-
-          // Increment wallet
-          await doc.ref.update({
-            balance: admin.firestore.FieldValue.increment(amountPaid)
-          });
-
-          console.log(`💰 Wallet incremented for ${phoneNumber}`);
-        });
-      }
+    if (hash !== paystackSignature) {
+      console.warn('⚠️ Invalid Paystack signature. Rejecting webhook.');
+      return res.sendStatus(400);
     }
 
+    // Immediately acknowledge receipt
     res.sendStatus(200);
+
+    // Parse event safely
+    const event = JSON.parse(req.rawBody.toString());
+
+    if (event.event !== 'charge.success' || event.data.channel !== 'dedicated_nuban') return;
+
+    const data = event.data;
+    const receiverAccount = data.metadata?.receiver_account_number;
+    if (!receiverAccount) return console.warn('No receiver account in metadata.');
+
+    const amount = data.amount / 100; // kobo → naira
+    const currency = data.currency || 'NGN';
+    const reference = data.reference;
+    const senderName = data.authorization?.sender_name || 'Unknown';
+    const senderBank = data.authorization?.sender_bank || 'Unknown';
+    const paidAt = new Date(data.paid_at);
+
+    console.log(`💰 Deposit received for account: ${receiverAccount}, reference: ${reference}`);
+
+    // Find the user by dedicated account number
+    const userSnap = await db.collection('users')
+      .where('bank.accountNumber', '==', receiverAccount)
+      .limit(1)
+      .get();
+
+    if (userSnap.empty) return console.warn(`No user found for account ${receiverAccount}.`);
+
+    const userDoc = userSnap.docs[0];
+    const userRef = userDoc.ref;
+
+    // Idempotency check
+    const existingTxSnap = await userRef.collection('transactions')
+      .where('reference', '==', reference)
+      .limit(1)
+      .get();
+
+    if (!existingTxSnap.empty) {
+      console.log(`✅ Transaction ${reference} already processed. Skipping.`);
+      return;
+    }
+
+    // Firestore transaction
+    try {
+      const newBalance = await db.runTransaction(async (tx) => {
+        const userData = (await tx.get(userRef)).data();
+        const updatedBalance = (userData.balance || 0) + amount;
+
+        tx.update(userRef, { balance: updatedBalance });
+        tx.set(userRef.collection('transactions').doc(reference), { // use reference as doc ID
+          type: 'deposit',
+          amount,
+          currency,
+          reference,
+          senderName,
+          senderBank,
+          receiverAccount,
+          paidAt: admin.firestore.Timestamp.fromDate(paidAt),
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          status: 'success'
+        });
+
+        return updatedBalance;
+      });
+
+      // WhatsApp receipt
+      try {
+        const message =
+          `💰 *Payment Received!*\n\n` +
+          `Amount: ₦${amount.toLocaleString()}\n` +
+          `From: ${senderName} (${senderBank})\n` +
+          `Reference: ${reference}\n` +
+          `Paid At: ${paidAt.toLocaleString()}\n` +
+          `\n🏦 New Balance: ₦${newBalance.toLocaleString()}\n` +
+          `Thank you for using Zlt Topup!`;
+
+        await sendTextMessage(userDoc.data().phone, message);
+        console.log(`📲 WhatsApp receipt sent to ${userDoc.data().phone}`);
+      } catch (waErr) {
+        console.error('🔥 WhatsApp sending error:', waErr);
+      }
+
+    } catch (txErr) {
+      console.error('🔥 Firestore transaction error:', txErr);
+    }
+
   } catch (err) {
-    console.error("🔥 Webhook error:", err.message);
-    res.sendStatus(500);
+    console.error('🚨 Paystack webhook error:', err);
   }
 });
-
 
 
 
