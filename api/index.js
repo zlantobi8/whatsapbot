@@ -86,137 +86,252 @@ async function sendMainMenu(to, firstName) {
   );
 }
 
-async function handleMenuChoice(text, from, userData) {
-  // Convert input to lowercase for consistency
-  const lowerText = text.trim().toLowerCase();
 
-  // Get user flow state from Firestore
-  const flowRef = db.collection('flows').doc(from);
-  const flowSnap = await flowRef.get();
-  let flow = flowSnap.exists ? flowSnap.data() : {};
 
-  // Step 1: Main Menu
-  if (!flow.step) {
-    switch (lowerText) {
-      case '1':
-        // Set flow step to choose network
-        await flowRef.set({ step: 'chooseNetwork' });
-        await sendTextMessage(
-          from,
-          'Select network for airtime top-up:\n1️⃣ MTN\n2️⃣ Airtel\n3️⃣ Glo\n4️⃣ 9Mobile'
-        );
-        return;
 
-      case '2':
-        await sendTextMessage(from, 'You selected Buy Data. Please choose a data plan:');
-        return;
 
-      case '3':
-        await sendTextMessage(from, `Your current balance is: ₦${Number(userData?.balance || 0).toLocaleString()}`);
-        return;
 
-      case '4':
-        if (userData?.bank) {
-          await sendTextMessage(
-            from,
-            `🏦 Bank: ${userData.bank.name}\n` +
-            `💳 Account Name: ${userData.bank.accountName}\n` +
-            `🔢 Account Number: ${userData.bank.accountNumber}`
-          );
-        } else {
-          await sendTextMessage(from, 'Sorry, your bank details are not available.');
-        }
-        return;
+const networkNames = { 1: 'MTN', 2: 'Airtel', 3: 'Glo', 4: '9Mobile' };
 
-      default:
-        await sendTextMessage(from, 'Invalid selection. Please reply with 1, 2, 3, or 4.');
-        return;
-    }
+// Utility: Compare plain PIN with hashed PIN
+function checkPin(pin, pinHash) {
+  const hash = crypto.createHash('sha256').update(pin).digest('hex');
+  return hash === pinHash;
+}
+
+// GET route: Show PIN entry page
+app.get('/verify-pin/:token', async (req, res) => {
+  const tokenRef = db.collection('pinTokens').doc(req.params.token);
+  const tokenSnap = await tokenRef.get();
+
+  if (!tokenSnap.exists) return res.send('Invalid or expired link.');
+
+  const { expiresAt } = tokenSnap.data();
+  if (expiresAt.toMillis() < Date.now()) {
+    await tokenRef.delete();
+    return res.send('Link expired. Please start the top-up process again.');
   }
 
-  // Step 2: Choose Network
-  if (flow.step === 'chooseNetwork') {
-    const networkMap = { '1': 1, '2': 2, '3': 3, '4': 4 };
-    if (!networkMap[lowerText]) {
-      await sendTextMessage(from, 'Invalid network. Reply with 1, 2, 3, or 4.');
-      return;
+  // Render simple HTML page
+  res.send(`
+    <html>
+      <head>
+        <title>Enter PIN</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1"/>
+        <style>
+          body { font-family: system-ui, -apple-system, Segoe UI, sans-serif; display:flex; justify-content:center; align-items:center; height:100vh; margin:0; background:#f4f6f8; }
+          .card { background:#fff; padding:32px; border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,0.1); max-width:400px; width:100%; text-align:center; }
+          input { width:100%; padding:12px; font-size:16px; border:1px solid #d0d7de; border-radius:8px; margin:16px 0; text-align:center; letter-spacing:0.35em; }
+          button { width:100%; padding:12px; font-size:16px; border:0; border-radius:8px; background:#27ae60; color:#fff; cursor:pointer; }
+          button:hover { background:#1f8f50; }
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <h2>Enter your 4-digit PIN</h2>
+          <form method="POST" action="/verify-pin/${req.params.token}">
+            <input type="password" name="pin" maxlength="4" required />
+            <button type="submit">Submit</button>
+          </form>
+        </div>
+      </body>
+    </html>
+  `);
+});
+
+// POST route: Validate PIN and perform top-up
+app.post('/verify-pin/:token', async (req, res) => {
+  try {
+    const tokenRef = db.collection('pinTokens').doc(req.params.token);
+    const tokenSnap = await tokenRef.get();
+    if (!tokenSnap.exists) return res.send('Invalid or expired link.');
+
+    const { phone, network, topupPhone, amount, expiresAt } = tokenSnap.data();
+
+    if (expiresAt.toMillis() < Date.now()) {
+      await tokenRef.delete();
+      return res.send('Link expired. Please start the top-up process again.');
     }
 
-    // Save selected network and move to phone number step
-    await flowRef.update({ step: 'enterPhone', network: networkMap[lowerText] });
-    await sendTextMessage(from, 'Enter the phone number you want to top up:');
-    return;
-  }
+    // Get user from Firestore
+    const userSnap = await db.collection('users').doc(phone).get();
+    const user = userSnap.data();
+    if (!user) return res.send('User not found.');
 
-  // Step 3: Enter Phone Number
-  if (flow.step === 'enterPhone') {
-    const phone = lowerText.replace(/\D/g, ''); // Remove non-numeric
-    if (phone.length < 10) {
-      await sendTextMessage(from, 'Please enter a valid 10-digit phone number.');
-      return;
+    // Check PIN
+    const pin = (req.body.pin || '').trim();
+    if (!checkPin(pin, user.pinHash)) {
+      return res.send('Incorrect PIN. Please try again.');
     }
 
-    await flowRef.update({ step: 'enterAmount', phone });
-    await sendTextMessage(from, 'Enter the amount you want to top up:');
-    return;
-  }
-
-  // Step 4: Enter Amount
-  if (flow.step === 'enterAmount') {
-    const amount = parseInt(lowerText, 10);
-    if (isNaN(amount) || amount <= 0) {
-      await sendTextMessage(from, 'Please enter a valid amount.');
-      return;
-    }
-
-    // Retrieve network and phone from flow
-    const { network, phone } = flow;
-
-    // Prepare VTU API request
-    const data = {
+    // Call VTU API
+    const topupData = {
       network: network.toString(),
-      mobile_number: phone,
+      mobile_number: topupPhone,
       Ported_number: "true",
       request_id: `${Date.now()}`,
       amount: amount.toString(),
       airtime_type: "VTU"
     };
 
+    let vtuResponse;
     try {
-      const response = await axios.post(
-        "https://sandbox.vtunaija.com.ng/api/topup/",
-        data,
+      vtuResponse = await axios.post(
+        "https://sandbox.vtunaija.com.ng/api/topup",
+        topupData,
         {
           headers: {
             Authorization: "Token oluwatobilobad60bdcdf4165b62b81d41e6a83cb8c731e",
-            "Content-Type": "application/json",
-          },
+            "Content-Type": "application/json"
+          }
         }
       );
-
-      if (response.data?.status === 'success') {
-        await sendTextMessage(
-          from,
-          `✅ Airtime top-up successful!\n` +
-          `Network: ${Object.keys({1:'MTN',2:'Airtel',3:'Glo',4:'9Mobile'})[network-1]}\n` +
-          `Phone: ${phone}\n` +
-          `Amount: ₦${amount}\n` +
-          `Transaction ID: ${response.data.id}`
-        );
-      } else {
-        await sendTextMessage(from, `❌ Top-up failed: ${response.data.api_response || 'Unknown error'}`);
-      }
-    } catch (error) {
-      console.error("VTU Error:", error.response?.data || error.message);
-      await sendTextMessage(from, `❌ Top-up failed: ${error.response?.data || error.message}`);
+    } catch (err) {
+      console.error('VTU Error:', err.response?.data || err.message);
+      return res.send('Top-up failed due to network or API error.');
     }
 
-    // Clear flow after top-up
+    if (vtuResponse.data?.status === 'success') {
+      // Send WhatsApp confirmation
+      await sendTextMessage(phone,
+        `✅ Airtime top-up successful!\n` +
+        `Network: ${networkNames[network]}\n` +
+        `Phone: ${topupPhone}\n` +
+        `Amount: ₦${amount}\n` +
+        `Transaction ID: ${vtuResponse.data.id}`
+      );
+
+      // Clean up token
+      await tokenRef.delete();
+
+      return res.send(`
+        <html>
+          <body style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;text-align:center;padding:48px">
+            <h2>✅ Top-up Successful!</h2>
+            <p>Amount: ₦${amount}</p>
+            <p>Network: ${networkNames[network]}</p>
+            <p>Phone: ${topupPhone}</p>
+            <p>Transaction ID: ${vtuResponse.data.id}</p>
+            <p style="color:#6b7280;margin-top:24px">You can now return to WhatsApp.</p>
+          </body>
+        </html>
+      `);
+    } else {
+      return res.send(`❌ Top-up failed: ${vtuResponse.data.api_response || 'Unknown error'}`);
+    }
+
+  } catch (err) {
+    console.error('Verify PIN route error:', err);
+    return res.send('An unexpected error occurred. Please try again.');
+  }
+});
+
+
+
+
+
+
+
+
+
+
+async function handleMenuChoice(text, from, userData) {
+  const input = text.trim();
+  const flowRef = db.collection('flows').doc(from);
+  const flowSnap = await flowRef.get();
+  let flow = flowSnap.exists ? flowSnap.data() : {};
+
+  try {
+    switch(flow.step) {
+      // -------- Step 0: Main Menu --------
+      case undefined:
+        switch(input) {
+          case '1': // Buy Airtime
+            await flowRef.set({ step: 'chooseNetwork' });
+            await sendTextMessage(from, 'Select network:\n1️⃣ MTN\n2️⃣ Airtel\n3️⃣ Glo\n4️⃣ 9Mobile');
+            break;
+          case '2':
+            await sendTextMessage(from, 'Buy Data is not implemented yet.');
+            break;
+          case '3':
+            await sendTextMessage(from, `Your balance: ₦${Number(userData?.balance || 0).toLocaleString()}`);
+            break;
+          case '4':
+            if(userData?.bank){
+              await sendTextMessage(from, `🏦 Bank: ${userData.bank.name}\n💳 Account Name: ${userData.bank.accountName}\n🔢 Account Number: ${userData.bank.accountNumber}`);
+            } else {
+              await sendTextMessage(from, 'Bank details not available.');
+            }
+            break;
+          default:
+            await sendTextMessage(from, 'Invalid choice. Reply 1,2,3,4.');
+        }
+        break;
+
+      // -------- Step 1: Choose Network --------
+      case 'chooseNetwork':
+        if(!['1','2','3','4'].includes(input)){
+          await sendTextMessage(from, 'Invalid network. Reply 1,2,3,4.');
+          return;
+        }
+        await flowRef.update({ step: 'enterPhone', network: parseInt(input,10) });
+        await sendTextMessage(from, 'Enter the phone number to top up:');
+        break;
+
+      // -------- Step 2: Enter Phone Number --------
+      case 'enterPhone':
+        const phoneNumber = input.replace(/\D/g,'');
+        if(phoneNumber.length < 10){
+          await sendTextMessage(from, 'Please enter a valid 10-digit phone number.');
+          return;
+        }
+        await flowRef.update({ step: 'enterAmount', phone: phoneNumber });
+        await sendTextMessage(from, 'Enter the amount to top up:');
+        break;
+
+      // -------- Step 3: Enter Amount --------
+      case 'enterAmount':
+        const amount = parseInt(input,10);
+        if(isNaN(amount) || amount <=0){
+          await sendTextMessage(from,'Please enter a valid amount.');
+          return;
+        }
+
+        // Retrieve flow data
+        const { network, phone: topupPhone } = flow;
+
+        // -------- Generate PIN verification link --------
+        const token = crypto.randomBytes(16).toString('hex');
+        const expiresAt = admin.firestore.Timestamp.fromMillis(Date.now() + 5 * 60 * 1000);
+
+        await db.collection('pinTokens').doc(token).set({
+          phone: from,
+          network,
+          topupPhone,
+          amount,
+          expiresAt
+        });
+
+        const link = `https://whatsapbot.vercel.app/verify-pin/${token}`;
+        await sendTextMessage(from,
+          `To complete your top-up of ₦${amount}, please verify your PIN here:\n${link}\n\nLink expires in 5 minutes.`
+        );
+
+        // Clear flow so user can start new operation later
+        await flowRef.delete();
+        break;
+
+      default:
+        await sendTextMessage(from, 'Something went wrong. Returning to main menu.');
+        await flowRef.delete();
+    }
+
+  } catch(e){
+    console.error('Menu handling error:', e);
+    await sendTextMessage(from, 'Unexpected error. Please try again.');
     await flowRef.delete();
-    return;
   }
 }
-
 
 // Paystack webhook
 app.post(
