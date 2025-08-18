@@ -111,7 +111,7 @@ const GLO_PLAN = {
   ]
 };
 
-export const AIRTEL_PLAN = {
+ const AIRTEL_PLAN = {
   ALL: [
     { id: 28, dataplan_id: "28", network: 2, plan_type: "Corporate", plan_type1: "Cooperate", plan_network: "AIRTEL", month_validate: "30 Days", plan: "500MB", plan_amount: "520.00" },
     { id: 29, dataplan_id: "29", network: 2, plan_type: "Corporate", plan_type1: "Cooperate", plan_network: "AIRTEL", month_validate: "30 Days", plan: "1GB", plan_amount: "822.00" },
