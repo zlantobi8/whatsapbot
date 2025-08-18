@@ -438,7 +438,7 @@ app.post('/webhook/paystack', bodyParser.raw({ type: 'application/json' }), asyn
     // Verify signature
     const hash = crypto
       .createHmac('sha512', process.env.PAYSTACK_SECRET_KEY)
-      .update(req.body)
+      .update(req.body) // req.body is a Buffer because of bodyParser.raw
       .digest('hex');
 
     if (hash !== paystackSignature) {
@@ -512,7 +512,7 @@ app.post('/webhook/paystack', bodyParser.raw({ type: 'application/json' }), asyn
           return updatedBalance;
         });
 
-        // Send WhatsApp receipt (async, don't block webhook)
+        // Send WhatsApp receipt (async)
         try {
           const message =
             `💰 *Payment Received!*\n\n` +
@@ -521,7 +521,7 @@ app.post('/webhook/paystack', bodyParser.raw({ type: 'application/json' }), asyn
             `Reference: ${reference}\n` +
             `Paid At: ${paidAt.toLocaleString()}\n` +
             `\n🏦 New Balance: ₦${newBalance.toLocaleString()}\n` +
-            `Thank you for using Zlt Topup!`;
+            `Thank you for using ZLT Topup!`;
 
           await sendTextMessage(userDoc.data().phone, message);
           console.log(`📲 WhatsApp receipt sent to ${userDoc.data().phone}`);
@@ -536,12 +536,8 @@ app.post('/webhook/paystack', bodyParser.raw({ type: 'application/json' }), asyn
 
   } catch (err) {
     console.error('🚨 Paystack webhook error:', err);
-    // Already responded to avoid 504
   }
 });
-
-
-
 
 
 
