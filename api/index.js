@@ -584,18 +584,33 @@ app.post('/verify-pin/:token', async (req, res) => {
     if (vtuResponse.data?.status === 'success') {
       // Deduct balance
       await userRef.update({ balance: admin.firestore.FieldValue.increment(-topupAmount) });
+      if (type === 'airtime') {
+        // Save receipt
+        await userRef.collection('airtimeTransactions').add({
+          type,
+          network,
+          networkName: networkNames[network],
+          phone: topupPhone,
+          amount: topupAmount,
+          plan: type === 'data' ? plan.plan : null,
+          transactionId: vtuResponse.data.id,
+          timestamp: admin.firestore.FieldValue.serverTimestamp()
+        });
 
-      // Save receipt
-      await userRef.collection('transactions').add({
-        type,
-        network,
-        networkName: networkNames[network],
-        phone: topupPhone,
-        amount: topupAmount,
-        plan: type === 'data' ? plan.plan : null,
-        transactionId: vtuResponse.data.id,
-        timestamp: admin.firestore.FieldValue.serverTimestamp()
-      });
+      } else if (type === 'data') {
+        // Save receipt
+        await userRef.collection('DataTransactions').add({
+          type,
+          network,
+          networkName: networkNames[network],
+          phone: topupPhone,
+          amount: topupAmount,
+          plan: type === 'data' ? plan.plan : null,
+          transactionId: vtuResponse.data.id,
+          timestamp: admin.firestore.FieldValue.serverTimestamp()
+        });
+      }
+
 
       // Send WhatsApp confirmation
       await sendTextMessage(phone,
