@@ -157,30 +157,30 @@ const DATA_PLANS = {
 
 
 
+const activeFlows = new Map(); // In-memory store: userId => flow object
+
 async function handleMenuChoice(text, from, userData) {
-  const input = text.trim().toLowerCase(); // normalize for greetings
-  const flowRef = db.collection('flows').doc(from);
-  const flowSnap = await flowRef.get();
-  let flow = flowSnap.exists ? flowSnap.data() : {};
+  const input = text.trim().toLowerCase();
   const userBalance = Number(userData?.balance || 0);
 
+  // --- Catch greetings ---
+  const greetings = ['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening'];
+  if (greetings.includes(input)) {
+    activeFlows.delete(from);
+    return sendMainMenu(from, userData?.firstName || '');
+  }
+
+  // --- Get flow from memory ---
+  let flow = activeFlows.get(from) || { step: undefined, attempts: 0 };
+
   const resetFlow = async (msg = '') => {
-    await flowRef.delete();
+    activeFlows.delete(from);
     if (msg) await sendTextMessage(from, msg);
     await sendMainMenu(from, userData?.firstName || '');
   };
 
   try {
-    // --- Universal greeting / casual message catch ---
-    const greetings = ['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening'];
-    if (greetings.includes(input)) {
-      return await resetFlow("👋 Hello! Let's start from the main menu.");
-    }
-
-    // --- Initialize attempts if not present ---
-    if (!flow.attempts) flow.attempts = 0;
-
-    // --- Expected input types per step ---
+    // --- Validate input ---
     const expectedInput = {
       chooseNetwork: 'numeric',
       choosePlan: 'numeric',
@@ -197,122 +197,121 @@ async function handleMenuChoice(text, from, userData) {
 
       if (!valid) {
         flow.attempts += 1;
+        activeFlows.set(from, flow);
 
         if (flow.attempts >= 2) {
-          return await resetFlow("❌ Too many invalid attempts. Returning to main menu.");
+          return resetFlow("❌ Too many invalid attempts. Returning to main menu.");
         } else {
-          await flowRef.update({ attempts: flow.attempts });
-          return await sendTextMessage(
-            from,
-            `❌ Invalid input. Please try again. (Attempt ${flow.attempts}/2)`
-          );
+          return sendTextMessage(from, `❌ Invalid input. Please try again. (Attempt ${flow.attempts}/2)`);
         }
       }
     }
 
-    // Reset attempts on valid input
-    flow.attempts = 0;
+    flow.attempts = 0; // reset attempts on valid input
 
+    // --- Step Handling ---
     switch (flow.step) {
       case undefined: // Main Menu
         switch (input) {
           case '1':
           case '2':
-            await flowRef.set({
+            flow = {
               step: 'chooseNetwork',
               type: input === '1' ? 'airtime' : 'data',
               attempts: 0
-            });
-            await sendTextMessage(from, `Select network:\n1️⃣ MTN\n2️⃣ Glo\n3️⃣ Airtel\n4️⃣ 9Mobile`);
-            break;
+            };
+            activeFlows.set(from, flow);
+            return sendTextMessage(from, `Select network:\n1️⃣ MTN\n2️⃣ Glo\n3️⃣ Airtel\n4️⃣ 9Mobile`);
 
           case '3':
-            await sendTextMessage(from, `Your balance: ₦${userBalance.toLocaleString()}`);
-            break;
+            return sendTextMessage(from, `Your balance: ₦${userBalance.toLocaleString()}`);
 
           case '4':
             if (userData?.bank) {
-              await sendTextMessage(from,
+              return sendTextMessage(from,
                 `🏦 Bank: ${userData.bank.name}\n💳 Account Name: ${userData.bank.accountName}\n🔢 Account Number: ${userData.bank.accountNumber}`
               );
             } else {
-              await sendTextMessage(from, 'Bank details not available.');
+              return sendTextMessage(from, 'Bank details not available.');
             }
-            break;
 
           default:
-            await sendTextMessage(from, 'Invalid choice. Reply 1, 2, 3, or 4.');
+            return sendTextMessage(from, 'Invalid choice. Reply 1, 2, 3, or 4.');
         }
-        break;
 
       case 'chooseNetwork':
         const network = parseInt(input, 10);
-        flow = { ...flow, network };
+        flow.network = network;
 
         if (flow.type === 'airtime') {
-          await flowRef.update({ step: 'enterPhone', network, attempts: 0 });
-          await sendTextMessage(from, 'Enter the phone number to top up:');
+          flow.step = 'enterPhone';
+          activeFlows.set(from, flow);
+          return sendTextMessage(from, 'Enter the phone number to top up:');
         } else {
           const plans = DATA_PLANS[network] || [];
-          if (!plans.length) return await resetFlow("No data plans found for this network.");
+          if (!plans.length) return resetFlow("No data plans found for this network.");
+
           let msg = 'Select a data plan:\n';
           plans.forEach((plan, idx) => {
             msg += `${idx + 1}. ${plan.plan} - ₦${plan.plan_amount} (${plan.month_validate})\n`;
           });
-          await flowRef.update({ step: 'choosePlan', plans, network, attempts: 0 });
-          await sendTextMessage(from, msg);
+
+          flow.step = 'choosePlan';
+          flow.plans = plans;
+          activeFlows.set(from, flow);
+          return sendTextMessage(from, msg);
         }
-        break;
 
       case 'choosePlan':
         const planIndex = parseInt(input, 10) - 1;
-        if (!flow.plans || planIndex < 0 || planIndex >= flow.plans.length) return await resetFlow();
+        if (!flow.plans || planIndex < 0 || planIndex >= flow.plans.length) return resetFlow();
         const selectedPlan = flow.plans[planIndex];
+
         if (userBalance < Number(selectedPlan.plan_amount)) {
           await sendTextMessage(from,
             `❌ Insufficient balance. You need ₦${selectedPlan.plan_amount}, but your balance is ₦${userBalance}.`
           );
-          return await resetFlow();
+          return resetFlow();
         }
-        await flowRef.update({ step: 'enterPhone', selectedPlan, attempts: 0 });
-        await sendTextMessage(from, `You selected ${selectedPlan.plan}. Enter the phone number to top up:`);
-        break;
+
+        flow.selectedPlan = selectedPlan;
+        flow.step = 'enterPhone';
+        activeFlows.set(from, flow);
+        return sendTextMessage(from, `You selected ${selectedPlan.plan}. Enter the phone number to top up:`);
 
       case 'enterPhone':
         const phoneNumber = input.replace(/\D/g, '');
         if (flow.type === 'airtime') {
-          await flowRef.update({ step: 'enterAmount', phone: phoneNumber, attempts: 0 });
-          await sendTextMessage(from, 'Enter the amount to top up:');
+          flow.phone = phoneNumber;
+          flow.step = 'enterAmount';
+          activeFlows.set(from, flow);
+          return sendTextMessage(from, 'Enter the amount to top up:');
         } else {
-          const { selectedPlan } = flow;
+          const { selectedPlan, network } = flow;
           const token = crypto.randomBytes(16).toString('hex');
           const expiresAt = admin.firestore.Timestamp.fromMillis(Date.now() + 5 * 60 * 1000);
 
           await db.collection('pinTokens').doc(token).set({
             phone: from,
-            network: flow.network,
+            network,
             topupPhone: phoneNumber,
             plan: selectedPlan,
             type: 'data',
             expiresAt
           });
 
-          await sendTextMessage(from,
+          activeFlows.delete(from);
+
+          return sendTextMessage(from,
             `To complete your data top-up of ${selectedPlan.plan} for ₦${selectedPlan.plan_amount}, verify your PIN here:\n` +
             `https://whatsapbot.vercel.app/verify-pin/${token}\n\nLink expires in 5 minutes.`
           );
-
-          await flowRef.delete();
         }
-        break;
 
       case 'enterAmount':
         const amount = parseInt(input, 10);
         if (isNaN(amount) || amount <= 0 || userBalance < amount) {
-          await sendTextMessage(from,
-            `❌ Invalid amount or insufficient balance. Your balance is ₦${userBalance}.`
-          );
-          return await resetFlow();
+          return resetFlow(`❌ Invalid amount or insufficient balance. Your balance is ₦${userBalance}.`);
         }
 
         const { network: airtimeNetwork, phone: topupPhone } = flow;
@@ -328,16 +327,15 @@ async function handleMenuChoice(text, from, userData) {
           expiresAt
         });
 
-        await sendTextMessage(from,
+        activeFlows.delete(from);
+
+        return sendTextMessage(from,
           `To complete your top-up of ₦${amount}, please verify your PIN here:\n` +
           `https://whatsapbot.vercel.app/verify-pin/${token}\n\nLink expires in 5 minutes.`
         );
 
-        await flowRef.delete();
-        break;
-
       default:
-        return await resetFlow();
+        return resetFlow();
     }
 
   } catch (e) {
