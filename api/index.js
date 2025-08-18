@@ -86,36 +86,136 @@ async function sendMainMenu(to, firstName) {
   );
 }
 
-async function handleMenuChoice(lowerText, from, userData) {
-  switch (lowerText) {
-    case '1':
-      await sendTextMessage(from, 'You selected Buy Airtime. Please enter the amount:');
-      return;
-    case '2':
-      await sendTextMessage(from, 'You selected Buy Data. Please choose a data plan:');
-      return;
-    case '3':
-      // Example: read balance from Firestore (default 0)
-      await sendTextMessage(from, `Your current balance is: ₦${Number(userData?.balance || 0).toLocaleString()}`);
-      return;
-    case '4':
-      if (userData?.bank) {
+async function handleMenuChoice(text, from, userData) {
+  // Convert input to lowercase for consistency
+  const lowerText = text.trim().toLowerCase();
+
+  // Get user flow state from Firestore
+  const flowRef = db.collection('flows').doc(from);
+  const flowSnap = await flowRef.get();
+  let flow = flowSnap.exists ? flowSnap.data() : {};
+
+  // Step 1: Main Menu
+  if (!flow.step) {
+    switch (lowerText) {
+      case '1':
+        // Set flow step to choose network
+        await flowRef.set({ step: 'chooseNetwork' });
         await sendTextMessage(
           from,
-          `🏦 Bank: ${userData.bank.name}\n` +
-          `💳 Account Name: ${userData.bank.accountName}\n` +
-          `🔢 Account Number: ${userData.bank.accountNumber}`
+          'Select network for airtime top-up:\n1️⃣ MTN\n2️⃣ Airtel\n3️⃣ Glo\n4️⃣ 9Mobile'
+        );
+        return;
+
+      case '2':
+        await sendTextMessage(from, 'You selected Buy Data. Please choose a data plan:');
+        return;
+
+      case '3':
+        await sendTextMessage(from, `Your current balance is: ₦${Number(userData?.balance || 0).toLocaleString()}`);
+        return;
+
+      case '4':
+        if (userData?.bank) {
+          await sendTextMessage(
+            from,
+            `🏦 Bank: ${userData.bank.name}\n` +
+            `💳 Account Name: ${userData.bank.accountName}\n` +
+            `🔢 Account Number: ${userData.bank.accountNumber}`
+          );
+        } else {
+          await sendTextMessage(from, 'Sorry, your bank details are not available.');
+        }
+        return;
+
+      default:
+        await sendTextMessage(from, 'Invalid selection. Please reply with 1, 2, 3, or 4.');
+        return;
+    }
+  }
+
+  // Step 2: Choose Network
+  if (flow.step === 'chooseNetwork') {
+    const networkMap = { '1': 1, '2': 2, '3': 3, '4': 4 };
+    if (!networkMap[lowerText]) {
+      await sendTextMessage(from, 'Invalid network. Reply with 1, 2, 3, or 4.');
+      return;
+    }
+
+    // Save selected network and move to phone number step
+    await flowRef.update({ step: 'enterPhone', network: networkMap[lowerText] });
+    await sendTextMessage(from, 'Enter the phone number you want to top up:');
+    return;
+  }
+
+  // Step 3: Enter Phone Number
+  if (flow.step === 'enterPhone') {
+    const phone = lowerText.replace(/\D/g, ''); // Remove non-numeric
+    if (phone.length < 10) {
+      await sendTextMessage(from, 'Please enter a valid 10-digit phone number.');
+      return;
+    }
+
+    await flowRef.update({ step: 'enterAmount', phone });
+    await sendTextMessage(from, 'Enter the amount you want to top up:');
+    return;
+  }
+
+  // Step 4: Enter Amount
+  if (flow.step === 'enterAmount') {
+    const amount = parseInt(lowerText, 10);
+    if (isNaN(amount) || amount <= 0) {
+      await sendTextMessage(from, 'Please enter a valid amount.');
+      return;
+    }
+
+    // Retrieve network and phone from flow
+    const { network, phone } = flow;
+
+    // Prepare VTU API request
+    const data = {
+      network: network.toString(),
+      mobile_number: phone,
+      Ported_number: "true",
+      request_id: `${Date.now()}`,
+      amount: amount.toString(),
+      airtime_type: "VTU"
+    };
+
+    try {
+      const response = await axios.post(
+        "https://sandbox.vtunaija.com.ng/api/topup",
+        data,
+        {
+          headers: {
+            Authorization: "Token oluwatobilobad60bdcdf4165b62b81d41e6a83cb8c731e",
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      if (response.data?.status === 'success') {
+        await sendTextMessage(
+          from,
+          `✅ Airtime top-up successful!\n` +
+          `Network: ${Object.keys({1:'MTN',2:'Airtel',3:'Glo',4:'9Mobile'})[network-1]}\n` +
+          `Phone: ${phone}\n` +
+          `Amount: ₦${amount}\n` +
+          `Transaction ID: ${response.data.id}`
         );
       } else {
-        await sendTextMessage(from, 'Sorry, your bank details are not available.');
+        await sendTextMessage(from, `❌ Top-up failed: ${response.data.api_response || 'Unknown error'}`);
       }
-      return;
-    default:
-      await sendTextMessage(from, 'Invalid selection. Please reply with 1, 2, 3, or 4.');
-      return;
+    } catch (error) {
+      console.error("VTU Error:", error.response?.data || error.message);
+      await sendTextMessage(from, `❌ Top-up failed: ${error.response?.data || error.message}`);
+    }
+
+    // Clear flow after top-up
+    await flowRef.delete();
+    return;
   }
 }
-
 
 
 // Paystack webhook
