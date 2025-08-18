@@ -162,6 +162,7 @@ async function handleMenuChoice(text, from, userData) {
   const flowRef = db.collection('flows').doc(from);
   const flowSnap = await flowRef.get();
   let flow = flowSnap.exists ? flowSnap.data() : {};
+  const userBalance = Number(userData?.balance || 0);
 
   try {
     switch (flow.step) {
@@ -179,11 +180,11 @@ async function handleMenuChoice(text, from, userData) {
             await sendTextMessage(from, 'Select network for data:\n1️⃣ MTN\n2️⃣ Glo\n3️⃣ Airtel\n4️⃣ 9Mobile');
             break;
 
-          case '3':
-            await sendTextMessage(from, `Your balance: ₦${Number(userData?.balance || 0).toLocaleString()}`);
+          case '3': // Check balance
+            await sendTextMessage(from, `Your balance: ₦${userBalance.toLocaleString()}`);
             break;
 
-          case '4':
+          case '4': // Bank info
             if (userData?.bank) {
               await sendTextMessage(from,
                 `🏦 Bank: ${userData.bank.name}\n💳 Account Name: ${userData.bank.accountName}\n🔢 Account Number: ${userData.bank.accountNumber}`
@@ -231,6 +232,14 @@ async function handleMenuChoice(text, from, userData) {
         }
 
         const selectedPlan = flow.plans[planIndex];
+        // Check balance for data
+        if (userBalance < Number(selectedPlan.plan_amount)) {
+          await sendTextMessage(from,
+            `❌ Insufficient balance. Your balance is ₦${userBalance}. You need ₦${selectedPlan.plan_amount} to buy this plan.`
+          );
+          return;
+        }
+
         await flowRef.update({ step: 'enterPhone', selectedPlan });
         await sendTextMessage(from, `You selected ${selectedPlan.plan}. Enter the phone number to top up:`);
         break;
@@ -248,6 +257,7 @@ async function handleMenuChoice(text, from, userData) {
           await sendTextMessage(from, 'Enter the amount to top up:');
         } else if (flow.type === 'data') {
           const { selectedPlan } = flow;
+
           const token = crypto.randomBytes(16).toString('hex');
           const expiresAt = admin.firestore.Timestamp.fromMillis(Date.now() + 5 * 60 * 1000);
 
@@ -255,8 +265,8 @@ async function handleMenuChoice(text, from, userData) {
             phone: from,
             network: flow.network,
             topupPhone: phoneNumber,
-            plan: selectedPlan,      // store plan for data top-up
-            type: 'data',            // mark as data
+            plan: selectedPlan,
+            type: 'data',
             expiresAt
           });
 
@@ -277,6 +287,14 @@ async function handleMenuChoice(text, from, userData) {
           return;
         }
 
+        // Check user balance
+        if (userBalance < amount) {
+          await sendTextMessage(from,
+            `❌ Insufficient balance. Your balance is ₦${userBalance}. You need ₦${amount} to top up.`
+          );
+          return;
+        }
+
         const { network: airtimeNetwork, phone: topupPhone } = flow;
         const token = crypto.randomBytes(16).toString('hex');
         const expiresAt = admin.firestore.Timestamp.fromMillis(Date.now() + 5 * 60 * 1000);
@@ -286,7 +304,7 @@ async function handleMenuChoice(text, from, userData) {
           network: airtimeNetwork,
           topupPhone,
           amount,
-          type: 'airtime',           // mark as airtime
+          type: 'airtime',
           expiresAt
         });
 
@@ -473,75 +491,98 @@ app.post('/verify-pin/:token', async (req, res) => {
     const tokenSnap = await tokenRef.get();
     if (!tokenSnap.exists) return res.send('Invalid or expired link.');
 
-    const { phone, network, topupPhone, amount, plan, type, expiresAt } = tokenSnap.data();
+    const tokenData = tokenSnap.data();
+    const { phone, network, topupPhone, amount, plan, type, expiresAt } = tokenData;
+
     if (expiresAt.toMillis() < Date.now()) {
       await tokenRef.delete();
       return res.send('Link expired. Please start the top-up process again.');
     }
 
-    const userSnap = await db.collection('users').doc(phone).get();
-    const user = userSnap.data();
-    if (!user) return res.send('User not found.');
+    const userRef = db.collection('users').doc(phone);
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) return res.send('User not found.');
 
+    const user = userSnap.data();
     const pin = (req.body.pin || '').trim();
+
+    // Check PIN
     if (!checkPin(pin, user.pinHash)) {
       return res.send(renderPinForm(req.params.token, 'Incorrect PIN. Please try again.'));
     }
 
-    // VTU API request
-    let vtuResponse;
-    try {
-      if (type === 'airtime') {
-        vtuResponse = await axios.post(
-          "https://sandbox.vtunaija.com.ng/api/topup/",
-          {
-            network: network.toString(),
-            mobile_number: topupPhone,
-            Ported_number: "true",
-            request_id: `${Date.now()}`,
-            amount: amount.toString(),
-            airtime_type: "VTU"
-          },
-          { headers: { Authorization: "Token YOUR_VTU_KEY", "Content-Type": "application/json" } }
-        );
-      } else if (type === 'data') {
-        vtuResponse = await axios.post(
-          "https://sandbox.vtunaija.com.ng/api/data/",
-          {
-            network: network.toString(),
-            mobile_number: topupPhone,
-            request_id: `${Date.now()}`,
-            plan: plan.dataplan_id
-          },
-          { headers: { Authorization: "Token YOUR_VTU_KEY", "Content-Type": "application/json" } }
-        );
-      }
-    } catch (err) {
-      console.error('VTU Error:', err.response?.data || err.message);
-      return res.send(`${type === 'airtime' ? 'Airtime' : 'Data'} top-up failed due to network or API error.`);
+    // Determine API route and payload
+    let apiUrl = '';
+    let topupPayload = {};
+    let topupAmount = 0;
+
+    if (type === 'airtime') {
+      topupAmount = Number(amount);
+      apiUrl = 'https://sandbox.vtunaija.com.ng/api/topup/';
+      topupPayload = {
+        network: network.toString(),
+        mobile_number: topupPhone,
+        Ported_number: "true",
+        request_id: `${Date.now()}`,
+        amount: amount.toString(),
+        airtime_type: "VTU"
+      };
+    } else if (type === 'data') {
+      topupAmount = Number(plan.plan_amount);
+      apiUrl = 'https://sandbox.vtunaija.com.ng/api/data/';
+      topupPayload = {
+        network: network.toString(),
+        mobile_number: topupPhone,
+        Ported_number: "true",
+        request_id: `${Date.now()}`,
+        plan: plan.dataplan_id
+      };
     }
 
-    // Check VTU response
-    if (vtuResponse.data?.status === 'success') {
-      await db.collection('users').doc(phone)
-        .collection(type === 'airtime' ? 'airtimeTransactions' : 'dataTransactions')
-        .add({
-          network: networkNames[network],
-          networkId: network,
-          phone: topupPhone,
-          amount: Number(amount) || plan.plan_amount,
-          plan: type === 'data' ? plan.plan : null,
-          transactionId: vtuResponse.data.id,
-          timestamp: admin.firestore.FieldValue.serverTimestamp()
-        });
+    // Check user balance before calling API
+    if (user.balance < topupAmount) {
+      return res.send(`❌ Insufficient balance. Your balance is ₦${user.balance}. You need ₦${topupAmount} to complete this top-up.`);
+    }
 
-      // WhatsApp confirmation
+    // Call VTU API
+    let vtuResponse;
+    try {
+      vtuResponse = await axios.post(apiUrl, topupPayload, {
+        headers: {
+          Authorization: "Token oluwatobilobad60bdcdf4165b62b81d41e6a83cb8c731e",
+          "Content-Type": "application/json"
+        }
+      });
+    } catch (err) {
+      console.error('VTU Error:', err.response?.data || err.message);
+      return res.send('Top-up failed due to network or API error.');
+    }
+
+    if (vtuResponse.data?.status === 'success') {
+      // Deduct balance
+      await userRef.update({ balance: admin.firestore.FieldValue.increment(-topupAmount) });
+
+      // Save receipt
+      await userRef.collection('transactions').add({
+        type,
+        network,
+        networkName: networkNames[network],
+        phone: topupPhone,
+        amount: topupAmount,
+        plan: type === 'data' ? plan.plan : null,
+        transactionId: vtuResponse.data.id,
+        timestamp: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+      // Send WhatsApp confirmation
       await sendTextMessage(phone,
-        `✅ ${type === 'airtime' ? 'Airtime' : 'Data'} top-up successful!\nNetwork: ${networkNames[network]}\nPhone: ${topupPhone}\nAmount: ₦${amount || plan.plan_amount}\nTransaction ID: ${vtuResponse.data.id}`
+        `✅ ${type === 'airtime' ? 'Airtime' : 'Data'} top-up successful!\nNetwork: ${networkNames[network]}\nPhone: ${topupPhone}\nAmount: ₦${topupAmount}\nTransaction ID: ${vtuResponse.data.id}`
       );
 
+      // Clean up token
       await tokenRef.delete();
-      return res.send(renderSuccessPage(network, topupPhone, amount || plan.plan_amount, vtuResponse.data.id));
+
+      return res.send(renderSuccessPage(network, topupPhone, topupAmount, vtuResponse.data.id));
     } else {
       return res.send(`❌ Top-up failed: ${vtuResponse.data.api_response || 'Unknown error'}`);
     }
@@ -551,6 +592,7 @@ app.post('/verify-pin/:token', async (req, res) => {
     return res.send('An unexpected error occurred. Please try again.');
   }
 });
+
 
 // Helper: render PIN form with optional error message
 function renderPinForm(token, errorMessage) {
