@@ -8,7 +8,7 @@ import bodyParser from 'body-parser';
 
 dotenv.config();
 
-/* ---------------- Firebase ---------------- */
+/* ---------------- Firebase --------------- */
 admin.initializeApp({
   credential: admin.credential.cert({
     type: process.env.FIREBASE_TYPE,
@@ -34,7 +34,7 @@ app.use(bodyParser.json());
 
 /* ---------------- ENV ------------ */
 
-const accessToken = "EAAPYD7d0GSsBPHgnQNJSswPpPP59EFEVKva2O0G1NZCbRb2T73fVREwEIQpKUqlMeW5KvcpWjznE7Hp1IN3KWwSgJ4ZB9V2raVDkOSyRVRFQ1NSC2WJsOlKGnWwyOjvOlkpGlOzsogVpEZCLJgL161cSvxmcZBVbIatnEyWh0jDzZA6rOefvcxFo2p2QS";
+const accessToken = "EAAPYD7d0GSsBPKcq0e0rw7lV4LNrhZBZCrY69cKyUazXn3o0jU6dTF4ZBgQlBkFqz4k38zt3PGBKmxOXBiryA5eSTzawK6tOrSKJBqpauFQfcNB3vZABvwZCZCmZAYl4QUEdFvyPvkUogmBrT5jYyRj4TMsCqjBZAarbHjnuFNZBxyK78BkWCzWk04xhVbbR3Y2Um"
 const phoneNumberId = process.env.phoneNumberId;   // ensure this key matches your .env
 const verifyToken = process.env.verifyToken;
 
