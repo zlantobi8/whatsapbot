@@ -171,7 +171,13 @@ async function handleMenuChoice(text, from, userData) {
   // --- Handle Greetings ---
   if (greetings.some(g => input === g || input.startsWith(g + ' ') || input.startsWith(g + ','))) {
     await flowRef.delete();
-    await sendMainMenu(from, userData);
+
+    // Fetch fresh user data from Firestore
+    const userRef = db.collection('users').doc(from);
+    const userSnap = await userRef.get();
+    const latestUserData = userSnap.exists ? userSnap.data() : {};
+
+    await sendMainMenu(from, latestUserData);
     return;
   }
 
