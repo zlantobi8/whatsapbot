@@ -184,7 +184,7 @@ async function handleMenuChoice(text, from, userData) {
 
     try {
       const response = await axios.post(
-        "https://sandbox.vtunaija.com.ng/api/topup",
+        "https://sandbox.vtunaija.com.ng/api/topup/",
         data,
         {
           headers: {
