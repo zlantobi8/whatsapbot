@@ -91,144 +91,6 @@ async function sendMainMenu(to, firstName) {
 
 
 
-const networkNames = { 1: 'MTN', 2: 'Airtel', 3: 'Glo', 4: '9Mobile' };
-
-// Utility: Compare plain PIN with hashed PIN
-function checkPin(pin, pinHash) {
-  const hash = crypto.createHash('sha256').update(pin).digest('hex');
-  return hash === pinHash;
-}
-
-// GET route: Show PIN entry page
-app.get('/verify-pin/:token', async (req, res) => {
-  const tokenRef = db.collection('pinTokens').doc(req.params.token);
-  const tokenSnap = await tokenRef.get();
-
-  if (!tokenSnap.exists) return res.send('Invalid or expired link.');
-
-  const { expiresAt } = tokenSnap.data();
-  if (expiresAt.toMillis() < Date.now()) {
-    await tokenRef.delete();
-    return res.send('Link expired. Please start the top-up process again.');
-  }
-
-  // Render simple HTML page
-  res.send(`
-    <html>
-      <head>
-        <title>Enter PIN</title>
-        <meta name="viewport" content="width=device-width,initial-scale=1"/>
-        <style>
-          body { font-family: system-ui, -apple-system, Segoe UI, sans-serif; display:flex; justify-content:center; align-items:center; height:100vh; margin:0; background:#f4f6f8; }
-          .card { background:#fff; padding:32px; border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,0.1); max-width:400px; width:100%; text-align:center; }
-          input { width:100%; padding:12px; font-size:16px; border:1px solid #d0d7de; border-radius:8px; margin:16px 0; text-align:center; letter-spacing:0.35em; }
-          button { width:100%; padding:12px; font-size:16px; border:0; border-radius:8px; background:#27ae60; color:#fff; cursor:pointer; }
-          button:hover { background:#1f8f50; }
-        </style>
-      </head>
-      <body>
-        <div class="card">
-          <h2>Enter your 4-digit PIN</h2>
-          <form method="POST" action="/verify-pin/${req.params.token}">
-            <input type="password" name="pin" maxlength="4" required />
-            <button type="submit">Submit</button>
-          </form>
-        </div>
-      </body>
-    </html>
-  `);
-});
-
-// POST route: Validate PIN and perform top-up
-app.post('/verify-pin/:token', async (req, res) => {
-  try {
-    const tokenRef = db.collection('pinTokens').doc(req.params.token);
-    const tokenSnap = await tokenRef.get();
-    if (!tokenSnap.exists) return res.send('Invalid or expired link.');
-
-    const { phone, network, topupPhone, amount, expiresAt } = tokenSnap.data();
-
-    if (expiresAt.toMillis() < Date.now()) {
-      await tokenRef.delete();
-      return res.send('Link expired. Please start the top-up process again.');
-    }
-
-    // Get user from Firestore
-    const userSnap = await db.collection('users').doc(phone).get();
-    const user = userSnap.data();
-    if (!user) return res.send('User not found.');
-
-    // Check PIN
-    const pin = (req.body.pin || '').trim();
-    if (!checkPin(pin, user.pinHash)) {
-      return res.send('Incorrect PIN. Please try again.');
-    }
-
-    // Call VTU API
-    const topupData = {
-      network: network.toString(),
-      mobile_number: topupPhone,
-      Ported_number: "true",
-      request_id: `${Date.now()}`,
-      amount: amount.toString(),
-      airtime_type: "VTU"
-    };
-
-    let vtuResponse;
-    try {
-      vtuResponse = await axios.post(
-        "https://sandbox.vtunaija.com.ng/api/topup/",
-        topupData,
-        {
-          headers: {
-            Authorization: "Token oluwatobilobad60bdcdf4165b62b81d41e6a83cb8c731e",
-            "Content-Type": "application/json"
-          }
-        }
-      );
-    } catch (err) {
-      console.error('VTU Error:', err.response?.data || err.message);
-      return res.send('Top-up failed due to network or API error.');
-    }
-
-    if (vtuResponse.data?.status === 'success') {
-      // Send WhatsApp confirmation
-      await sendTextMessage(phone,
-        `✅ Airtime top-up successful!\n` +
-        `Network: ${networkNames[network]}\n` +
-        `Phone: ${topupPhone}\n` +
-        `Amount: ₦${amount}\n` +
-        `Transaction ID: ${vtuResponse.data.id}`
-      );
-
-      // Clean up token
-      await tokenRef.delete();
-
-      return res.send(`
-        <html>
-          <body style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;text-align:center;padding:48px">
-            <h2>✅ Top-up Successful!</h2>
-            <p>Amount: ₦${amount}</p>
-            <p>Network: ${networkNames[network]}</p>
-            <p>Phone: ${topupPhone}</p>
-            <p>Transaction ID: ${vtuResponse.data.id}</p>
-            <p style="color:#6b7280;margin-top:24px">You can now return to WhatsApp.</p>
-          </body>
-        </html>
-      `);
-    } else {
-      return res.send(`❌ Top-up failed: ${vtuResponse.data.api_response || 'Unknown error'}`);
-    }
-
-  } catch (err) {
-    console.error('Verify PIN route error:', err);
-    return res.send('An unexpected error occurred. Please try again.');
-  }
-});
-
-
-
-
 
 
 
@@ -451,6 +313,171 @@ app.post(
 
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
+
+
+
+
+
+
+
+
+const networkNames = { 1: 'MTN', 2: 'Airtel', 3: 'Glo', 4: '9Mobile' };
+
+// Utility: Compare plain PIN with hashed PIN
+function checkPin(pin, pinHash) {
+  const hash = crypto.createHash('sha256').update(pin).digest('hex');
+  return hash === pinHash;
+}
+
+// GET route: Show PIN entry page
+app.get('/verify-pin/:token', async (req, res) => {
+  const tokenRef = db.collection('pinTokens').doc(req.params.token);
+  const tokenSnap = await tokenRef.get();
+
+  if (!tokenSnap.exists) return res.send('Invalid or expired link.');
+
+  const { expiresAt } = tokenSnap.data();
+  if (expiresAt.toMillis() < Date.now()) {
+    await tokenRef.delete();
+    return res.send('Link expired. Please start the top-up process again.');
+  }
+
+  // Render simple HTML page
+  res.send(`
+    <html>
+      <head>
+        <title>Enter PIN</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1"/>
+        <style>
+          body { font-family: system-ui, -apple-system, Segoe UI, sans-serif; display:flex; justify-content:center; align-items:center; height:100vh; margin:0; background:#f4f6f8; }
+          .card { background:#fff; padding:32px; border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,0.1); max-width:400px; width:100%; text-align:center; }
+          input { width:100%; padding:12px; font-size:16px; border:1px solid #d0d7de; border-radius:8px; margin:16px 0; text-align:center; letter-spacing:0.35em; }
+          button { width:100%; padding:12px; font-size:16px; border:0; border-radius:8px; background:#27ae60; color:#fff; cursor:pointer; }
+          button:hover { background:#1f8f50; }
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <h2>Enter your 4-digit PIN</h2>
+          <form method="POST" action="/verify-pin/${req.params.token}">
+            <input type="password" name="pin" maxlength="4" required />
+            <button type="submit">Submit</button>
+          </form>
+        </div>
+      </body>
+    </html>
+  `);
+});
+
+// POST route: Validate PIN and perform top-up
+app.post('/verify-pin/:token', async (req, res) => {
+  try {
+    const tokenRef = db.collection('pinTokens').doc(req.params.token);
+    const tokenSnap = await tokenRef.get();
+    if (!tokenSnap.exists) return res.send('Invalid or expired link.');
+
+    const { phone, network, topupPhone, amount, expiresAt } = tokenSnap.data();
+
+    if (expiresAt.toMillis() < Date.now()) {
+      await tokenRef.delete();
+      return res.send('Link expired. Please start the top-up process again.');
+    }
+
+    // Get user from Firestore
+    const userSnap = await db.collection('users').doc(phone).get();
+    const user = userSnap.data();
+    if (!user) return res.send('User not found.');
+
+    // Check PIN
+    const pin = (req.body.pin || '').trim();
+    if (!checkPin(pin, user.pinHash)) {
+      return res.send('Incorrect PIN. Please try again.');
+    }
+
+    // Call VTU API
+    const topupData = {
+      network: network.toString(),
+      mobile_number: topupPhone,
+      Ported_number: "true",
+      request_id: `${Date.now()}`,
+      amount: amount.toString(),
+      airtime_type: "VTU"
+    };
+
+    let vtuResponse;
+    try {
+      vtuResponse = await axios.post(
+        "https://sandbox.vtunaija.com.ng/api/topup/",
+        topupData,
+        {
+          headers: {
+            Authorization: "Token oluwatobilobad60bdcdf4165b62b81d41e6a83cb8c731e",
+            "Content-Type": "application/json"
+          }
+        }
+      );
+    } catch (err) {
+      console.error('VTU Error:', err.response?.data || err.message);
+      return res.send('Top-up failed due to network or API error.');
+    }
+
+    if (vtuResponse.data?.status === 'success') {
+      // Send WhatsApp confirmation
+      await sendTextMessage(phone,
+        `✅ Airtime top-up successful!\n` +
+        `Network: ${networkNames[network]}\n` +
+        `Phone: ${topupPhone}\n` +
+        `Amount: ₦${amount}\n` +
+        `Transaction ID: ${vtuResponse.data.id}`
+      );
+
+      // Clean up token
+      await tokenRef.delete();
+
+      return res.send(`
+        <html>
+          <body style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;text-align:center;padding:48px">
+            <h2>✅ Top-up Successful!</h2>
+            <p>Amount: ₦${amount}</p>
+            <p>Network: ${networkNames[network]}</p>
+            <p>Phone: ${topupPhone}</p>
+            <p>Transaction ID: ${vtuResponse.data.id}</p>
+            <p style="color:#6b7280;margin-top:24px">You can now return to WhatsApp.</p>
+          </body>
+        </html>
+      `);
+    } else {
+      return res.send(`❌ Top-up failed: ${vtuResponse.data.api_response || 'Unknown error'}`);
+    }
+
+  } catch (err) {
+    console.error('Verify PIN route error:', err);
+    return res.send('An unexpected error occurred. Please try again.');
+  }
+});
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
