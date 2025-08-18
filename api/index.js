@@ -637,24 +637,53 @@ function renderPinForm(token, errorMessage) {
   return `
     <html>
       <head>
-        <title>Enter PIN</title>
+        <title>Enter PIN - Zlt Topup</title>
         <meta name="viewport" content="width=device-width,initial-scale=1"/>
         <style>
-          body { font-family: system-ui, -apple-system, Segoe UI, sans-serif; display:flex; justify-content:center; align-items:center; height:100vh; margin:0; background:#f4f6f8; }
-          .card { background:#fff; padding:32px; border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,0.1); max-width:400px; width:100%; text-align:center; }
-          input { width:100%; padding:12px; font-size:16px; border:1px solid #d0d7de; border-radius:8px; margin:16px 0; text-align:center; letter-spacing:0.35em; }
-          button { width:100%; padding:12px; font-size:16px; border:0; border-radius:8px; background:#27ae60; color:#fff; cursor:pointer; }
-          button:hover { background:#1f8f50; }
-          .error { color: red; margin-bottom: 12px; font-weight: bold; }
+          body { 
+            font-family: system-ui, -apple-system, Segoe UI, sans-serif; 
+            display:flex; justify-content:center; align-items:center; 
+            height:100vh; margin:0; background:#f4f6f8; 
+          }
+          .card { 
+            background:#fff; padding:32px; border-radius:16px; 
+            box-shadow:0 8px 28px rgba(0,0,0,0.12); 
+            max-width:400px; width:100%; text-align:center; 
+          }
+          .logo {
+            width:120px; margin:0 auto 16px; display:block;
+          }
+          h2 { 
+            color:#2c3e50; margin-bottom:12px;
+          }
+          input { 
+            width:100%; padding:14px; font-size:18px; 
+            border:2px solid #d0d7de; border-radius:10px; 
+            margin:18px 0; text-align:center; 
+            letter-spacing:0.4em; outline:none;
+          }
+          input:focus { border-color:#9b59b6; }
+          button { 
+            width:100%; padding:14px; font-size:16px; 
+            border:0; border-radius:10px; 
+            background:#9b59b6; color:#fff; 
+            cursor:pointer; font-weight:600; 
+            transition:background 0.2s ease;
+          }
+          button:hover { background:#884ea0; }
+          .error { 
+            color: #e74c3c; margin-bottom: 12px; font-weight: bold; 
+          }
         </style>
       </head>
       <body>
         <div class="card">
+          <img src="/static/logo.png" alt="Zlt Topup" class="logo" />
           <h2>Enter your 4-digit PIN</h2>
           ${errorMessage ? `<p class="error">${errorMessage}</p>` : ''}
           <form method="POST" action="/verify-pin/${token}">
             <input type="password" name="pin" maxlength="4" required />
-            <button type="submit">Submit</button>
+            <button type="submit">Verify</button>
           </form>
         </div>
       </body>
@@ -662,22 +691,45 @@ function renderPinForm(token, errorMessage) {
   `;
 }
 
-// Helper: render success page
+// Success Page with branding
 function renderSuccessPage(network, topupPhone, amount, transactionId) {
   return `
     <html>
-      <body style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;text-align:center;padding:48px">
-        <h2>✅ Top-up Successful!</h2>
-        <p>Amount: ₦${amount}</p>
-        <p>Network: ${networkNames[network]}</p>
-        <p>Phone: ${topupPhone}</p>
-        <p>Transaction ID: ${transactionId}</p>
-        <p style="color:#6b7280;margin-top:24px">You can now return to WhatsApp.</p>
+      <head>
+        <title>Success - Zlt Topup</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1"/>
+        <style>
+          body { 
+            font-family: system-ui, -apple-system, Segoe UI, sans-serif; 
+            text-align:center; padding:48px; background:#f9fafb; 
+          }
+          .card {
+            background:#fff; padding:32px; border-radius:16px; 
+            box-shadow:0 8px 28px rgba(0,0,0,0.12);
+            max-width:500px; margin:0 auto;
+          }
+          .logo {
+            width:120px; margin:0 auto 20px; display:block;
+          }
+          h2 { color:#27ae60; margin-bottom:16px; }
+          p { margin:8px 0; font-size:16px; }
+          .note { color:#6b7280; margin-top:24px; font-size:14px; }
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <img src="/static/logo.png" alt="Zlt Topup" class="logo" />
+          <h2>✅ Top-up Successful!</h2>
+          <p><strong>Amount:</strong> ₦${amount}</p>
+          <p><strong>Network:</strong> ${networkNames[network]}</p>
+          <p><strong>Phone:</strong> ${topupPhone}</p>
+          <p><strong>Transaction ID:</strong> ${transactionId}</p>
+          <p class="note">You can now return to WhatsApp.</p>
+        </div>
       </body>
     </html>
   `;
 }
-
 
 
 
@@ -904,16 +956,44 @@ app.get('/set-pin/:token', async (req, res) => {
       <title>Set Zlt Topup PIN</title>
       <meta name="viewport" content="width=device-width,initial-scale=1" />
       <style>
-        body { font-family: system-ui, -apple-system, Segoe UI, sans-serif; background: #f4f6f8; display:flex; align-items:center; justify-content:center; height:100vh; margin:0; }
-        .card { background:#fff; padding:32px; border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,0.1); width:100%; max-width:420px; text-align:center; }
-        input { width:100%; padding:12px; font-size:16px; border:1px solid #d0d7de; border-radius:8px; margin:12px 0 20px; letter-spacing:0.35em; text-align:center; }
-        button { width:100%; padding:12px; font-size:16px; border:0; border-radius:8px; background:#27ae60; color:#fff; cursor:pointer; }
-        button:hover { background:#1f8f50; }
-        .muted { color:#6b7280; font-size:14px; margin-top:8px; }
+        body { 
+          font-family: system-ui, -apple-system, Segoe UI, sans-serif; 
+          background: #f4f6f8; display:flex; align-items:center; 
+          justify-content:center; height:100vh; margin:0; 
+        }
+        .card { 
+          background:#fff; padding:32px; border-radius:16px; 
+          box-shadow:0 8px 28px rgba(0,0,0,0.12); 
+          width:100%; max-width:420px; text-align:center; 
+        }
+        .logo { 
+          width:120px; margin:0 auto 20px; display:block; 
+        }
+        h2 { 
+          color:#2c3e50; margin-bottom:16px; 
+        }
+        input { 
+          width:100%; padding:14px; font-size:18px; 
+          border:2px solid #d0d7de; border-radius:10px; 
+          margin:18px 0; letter-spacing:0.4em; text-align:center; 
+          outline:none;
+        }
+        input:focus { border-color:#9b59b6; }
+        button { 
+          width:100%; padding:14px; font-size:16px; 
+          border:0; border-radius:10px; background:#9b59b6; 
+          color:#fff; cursor:pointer; font-weight:600; 
+          transition: background 0.2s ease; 
+        }
+        button:hover { background:#884ea0; }
+        .muted { 
+          color:#6b7280; font-size:14px; margin-top:12px; 
+        }
       </style>
     </head>
     <body>
       <div class="card">
+        <img src="/static/logo.png" alt="Zlt Topup" class="logo" />
         <h2>Set your Zlt Topup PIN</h2>
         <form method="POST" action="/set-pin/${req.params.token}" enctype="application/x-www-form-urlencoded">
           <input type="password" name="pin" placeholder="Enter 4-digit PIN" maxlength="4" required />
@@ -995,17 +1075,50 @@ app.post('/set-pin/:token', async (req, res) => {
 
     // HTML response
     res.send(`
-      <html>
-        <body style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;text-align:center;padding:48px">
-          <h2>🎉 PIN set successfully!</h2>
-          <p>${firstName} ${lastName}, your account is ready.</p>
-          <p>🏦 Bank: ${accountData.bank.name}</p>
-          <p>💳 Account Name: ${accountData.account_name}</p>
-          <p>🔢 Account Number: ${accountData.account_number}</p>
-          <p style="color:#6b7280;margin-top:24px">You can now return to WhatsApp and reply with 1, 2, 3 or 4 from the menu I sent.</p>
-        </body>
-      </html>
-    `);
+  <html>
+    <head>
+      <title>PIN Set - Zlt Topup</title>
+      <meta name="viewport" content="width=device-width,initial-scale=1" />
+      <style>
+        body { 
+          font-family: system-ui, -apple-system, Segoe UI, sans-serif; 
+          background:#f4f6f8; margin:0; padding:0; 
+          display:flex; align-items:center; justify-content:center; 
+          height:100vh; 
+        }
+        .card { 
+          background:#fff; padding:32px; border-radius:16px; 
+          box-shadow:0 8px 28px rgba(0,0,0,0.12); 
+          width:100%; max-width:460px; text-align:center; 
+        }
+        .logo { 
+          width:120px; margin:0 auto 20px; display:block; 
+        }
+        h2 { 
+          color:#2c3e50; margin-bottom:16px; 
+        }
+        p { 
+          font-size:16px; margin:8px 0; 
+        }
+        .muted { 
+          color:#6b7280; font-size:14px; margin-top:20px; 
+        }
+      </style>
+    </head>
+    <body>
+      <div class="card">
+        <img src="/static/logo.png" alt="Zlt Topup" class="logo" />
+        <h2>🎉 PIN Set Successfully!</h2>
+        <p><strong>${firstName} ${lastName}</strong>, your account is ready.</p>
+        <p>🏦 <strong>Bank:</strong> ${accountData.bank.name}</p>
+        <p>💳 <strong>Account Name:</strong> ${accountData.account_name}</p>
+        <p>🔢 <strong>Account Number:</strong> ${accountData.account_number}</p>
+        <p class="muted">You can now return to WhatsApp and reply with 1, 2, 3 or 4 from the menu I sent.</p>
+      </div>
+    </body>
+  </html>
+`);
+
   } catch (err) {
     console.error('PIN route error:', err.response?.data || err.message);
     res.send('Error creating account. Please try again later.');
@@ -1025,33 +1138,55 @@ app.get("/privacy-policy", (req, res) => {
     <head>
       <meta charset="UTF-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-      <title>Privacy Policy - ZLt Topup</title>
+      <title>Privacy Policy - Zlt Topup</title>
       <style>
         body {
-          font-family: Arial, sans-serif;
-          line-height: 1.6;
-          margin: 2rem;
-          background: #f9f9f9;
-          color: #333;
+          font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+          background: #f4f6f8;
+          margin: 0; padding: 0;
+          display: flex; justify-content: center; align-items: flex-start;
+          min-height: 100vh;
         }
-        h1 { color: #0d6efd; }
+        .card {
+          background: #fff;
+          padding: 32px;
+          margin: 40px 20px;
+          border-radius: 16px;
+          box-shadow: 0 8px 28px rgba(0,0,0,0.12);
+          max-width: 720px;
+          width: 100%;
+        }
+        .logo {
+          width: 120px; display:block; margin:0 auto 20px;
+        }
+        h1, h2 {
+          color: #0d6efd;
+        }
+        p {
+          color: #333; line-height: 1.6;
+        }
       </style>
     </head>
     <body>
-      <h1>Privacy Policy</h1>
-      <p>At <strong>ZLt Topup</strong>, we value your privacy. This Privacy Policy explains how we collect, use, and protect your personal information.</p>
-      
-      <h2>Information We Collect</h2>
-      <p>We may collect your email, name, and payment details when you use our platform.</p>
-      
-      <h2>How We Use Information</h2>
-      <p>Your information is used solely for account creation, service delivery, and transaction verification.</p>
-      
-      <h2>Security</h2>
-      <p>We implement industry-standard security to protect your data against unauthorized access.</p>
-      
-      <h2>Contact Us</h2>
-      <p>If you have any questions, contact us at <a href="mailto:zlttopup@gmail.com">zlttopup@gmail.com</a>.</p>
+      <div class="card">
+        <img src="/static/logo.png" alt="Zlt Topup" class="logo" />
+        <h1>Privacy Policy</h1>
+        <p>At <strong>Zlt Topup</strong>, we value your privacy. This Privacy Policy explains how we collect, use, and protect your personal information.</p>
+        
+        <h2>Information We Collect</h2>
+        <p>We may collect your email, name, and payment details when you use our platform.</p>
+        
+        <h2>How We Use Information</h2>
+        <p>Your information is used solely for account creation, service delivery, and transaction verification.</p>
+        
+        <h2>Security</h2>
+        <p>We implement industry-standard security to protect your data against unauthorized access.</p>
+        
+        <h2>Contact Us</h2>
+        <p>If you have any questions, contact us at 
+          <a href="mailto:zlttopup@gmail.com">zlttopup@gmail.com</a>.
+        </p>
+      </div>
     </body>
     </html>
   `);
@@ -1066,34 +1201,54 @@ app.get("/delete-user-data", (req, res) => {
     <head>
       <meta charset="UTF-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-      <title>Data Deletion - ZLt Topup</title>
+      <title>Data Deletion - Zlt Topup</title>
       <style>
         body {
-          font-family: Arial, sans-serif;
-          line-height: 1.6;
-          margin: 2rem;
-          background: #f9f9f9;
-          color: #333;
+          font-family: system-ui, -apple-system, Segoe UI, sans-serif;
+          background: #f4f6f8;
+          margin: 0; padding: 0;
+          display: flex; justify-content: center; align-items: flex-start;
+          min-height: 100vh;
         }
-        h1 { color: #dc3545; }
+        .card {
+          background: #fff;
+          padding: 32px;
+          margin: 40px 20px;
+          border-radius: 16px;
+          box-shadow: 0 8px 28px rgba(0,0,0,0.12);
+          max-width: 720px;
+          width: 100%;
+        }
+        .logo {
+          width: 120px; display:block; margin:0 auto 20px;
+        }
+        h1, h2 {
+          color: #6c63ff;
+        }
+        p {
+          color: #333; line-height: 1.6;
+        }
       </style>
     </head>
     <body>
-      <h1>Data Deletion Instructions</h1>
-      <p>At <strong>ZLt Topup</strong>, we respect your privacy and give you full control over your data.</p>
-      
-      <h2>How to Request Deletion</h2>
-      <p>If you would like to delete your account and associated data, please send an email to 
-      <a href="mailto:zlttopup@gmail.com">zlttopup@gmail.com</a> using your registered email address.</p>
-      
-      <p>Once we receive your request, we will verify your identity and process the deletion within <strong>7 business days</strong>.</p>
-      
-      <h2>Automatic Deletion</h2>
-      <p>If you stop using our services for more than 12 months, we may automatically delete your data for security and compliance purposes.</p>
-      
-      <h2>Contact Us</h2>
-      <p>For any questions about your data or this deletion process, please contact us at 
-      <a href="mailto:zlttopup@gmail.com">zlttopup@gmail.com</a>.</p>
+      <div class="card">
+        <img src="/static/logo.png" alt="Zlt Topup" class="logo" />
+        <h1>Data Deletion Instructions</h1>
+        <p>At <strong>Zlt Topup</strong>, we respect your privacy and give you full control over your data.</p>
+        
+        <h2>How to Request Deletion</h2>
+        <p>If you would like to delete your account and associated data, please send an email to 
+        <a href="mailto:zlttopup@gmail.com">zlttopup@gmail.com</a> using your registered email address.</p>
+        
+        <p>Once we receive your request, we will verify your identity and process the deletion within <strong>7 business days</strong>.</p>
+        
+        <h2>Automatic Deletion</h2>
+        <p>If you stop using our services for more than 12 months, we may automatically delete your data for security and compliance purposes.</p>
+        
+        <h2>Contact Us</h2>
+        <p>For any questions about your data or this deletion process, please contact us at 
+        <a href="mailto:zlttopup@gmail.com">zlttopup@gmail.com</a>.</p>
+      </div>
     </body>
     </html>
   `);
