@@ -5,7 +5,8 @@ import crypto from 'crypto';
 import axios from 'axios';
 import dotenv from 'dotenv';
 import bodyParser from 'body-parser';
-
+import path from "path";
+import { fileURLToPath } from "url";
 dotenv.config();
 
 /* ---------------- Firebase --------------- */
@@ -26,9 +27,12 @@ admin.initializeApp({
 });
 const db = admin.firestore();
 db.settings({ ignoreUndefinedProperties: true });
-
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 /* ---------------- Express ---------------- */
 const app = express();
+app.use("/static", express.static(path.join(__dirname, "../static")));
+
 
 
 /* ---------------- ENV ------------ */
