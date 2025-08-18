@@ -331,42 +331,23 @@ function checkPin(pin, pinHash) {
 
 // GET route: Show PIN entry page
 app.get('/verify-pin/:token', async (req, res) => {
-  const tokenRef = db.collection('pinTokens').doc(req.params.token);
-  const tokenSnap = await tokenRef.get();
+  try {
+    const tokenRef = db.collection('pinTokens').doc(req.params.token);
+    const tokenSnap = await tokenRef.get();
 
-  if (!tokenSnap.exists) return res.send('Invalid or expired link.');
+    if (!tokenSnap.exists) return res.send('Invalid or expired link.');
 
-  const { expiresAt } = tokenSnap.data();
-  if (expiresAt.toMillis() < Date.now()) {
-    await tokenRef.delete();
-    return res.send('Link expired. Please start the top-up process again.');
+    const { expiresAt } = tokenSnap.data();
+    if (expiresAt.toMillis() < Date.now()) {
+      await tokenRef.delete();
+      return res.send('Link expired. Please start the top-up process again.');
+    }
+
+    res.send(renderPinForm(req.params.token));
+  } catch (err) {
+    console.error('GET verify-pin error:', err);
+    return res.send('An unexpected error occurred.');
   }
-
-  // Render simple HTML page
-  res.send(`
-    <html>
-      <head>
-        <title>Enter PIN</title>
-        <meta name="viewport" content="width=device-width,initial-scale=1"/>
-        <style>
-          body { font-family: system-ui, -apple-system, Segoe UI, sans-serif; display:flex; justify-content:center; align-items:center; height:100vh; margin:0; background:#f4f6f8; }
-          .card { background:#fff; padding:32px; border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,0.1); max-width:400px; width:100%; text-align:center; }
-          input { width:100%; padding:12px; font-size:16px; border:1px solid #d0d7de; border-radius:8px; margin:16px 0; text-align:center; letter-spacing:0.35em; }
-          button { width:100%; padding:12px; font-size:16px; border:0; border-radius:8px; background:#27ae60; color:#fff; cursor:pointer; }
-          button:hover { background:#1f8f50; }
-        </style>
-      </head>
-      <body>
-        <div class="card">
-          <h2>Enter your 4-digit PIN</h2>
-          <form method="POST" action="/verify-pin/${req.params.token}">
-            <input type="password" name="pin" maxlength="4" required />
-            <button type="submit">Submit</button>
-          </form>
-        </div>
-      </body>
-    </html>
-  `);
 });
 
 // POST route: Validate PIN and perform top-up
@@ -377,21 +358,20 @@ app.post('/verify-pin/:token', async (req, res) => {
     if (!tokenSnap.exists) return res.send('Invalid or expired link.');
 
     const { phone, network, topupPhone, amount, expiresAt } = tokenSnap.data();
-
     if (expiresAt.toMillis() < Date.now()) {
       await tokenRef.delete();
       return res.send('Link expired. Please start the top-up process again.');
     }
 
-    // Get user from Firestore
     const userSnap = await db.collection('users').doc(phone).get();
     const user = userSnap.data();
     if (!user) return res.send('User not found.');
 
-    // Check PIN
     const pin = (req.body.pin || '').trim();
+
+    // Wrong PIN → re-render form with inline error
     if (!checkPin(pin, user.pinHash)) {
-      return res.send('Incorrect PIN. Please try again.');
+      return res.send(renderPinForm(req.params.token, 'Incorrect PIN. Please try again.'));
     }
 
     // Call VTU API
@@ -422,30 +402,27 @@ app.post('/verify-pin/:token', async (req, res) => {
     }
 
     if (vtuResponse.data?.status === 'success') {
+      // Save receipt in subcollection
+      await db.collection('users').doc(phone)
+        .collection('airtimeTransactions')
+        .add({
+          network: networkNames[network],
+          networkId: network,
+          phone: topupPhone,
+          amount: Number(amount),
+          transactionId: vtuResponse.data.id,
+          timestamp: admin.firestore.FieldValue.serverTimestamp()
+        });
+
       // Send WhatsApp confirmation
       await sendTextMessage(phone,
-        `✅ Airtime top-up successful!\n` +
-        `Network: ${networkNames[network]}\n` +
-        `Phone: ${topupPhone}\n` +
-        `Amount: ₦${amount}\n` +
-        `Transaction ID: ${vtuResponse.data.id}`
+        `✅ Airtime top-up successful!\nNetwork: ${networkNames[network]}\nPhone: ${topupPhone}\nAmount: ₦${amount}\nTransaction ID: ${vtuResponse.data.id}`
       );
 
       // Clean up token
       await tokenRef.delete();
 
-      return res.send(`
-        <html>
-          <body style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;text-align:center;padding:48px">
-            <h2>✅ Top-up Successful!</h2>
-            <p>Amount: ₦${amount}</p>
-            <p>Network: ${networkNames[network]}</p>
-            <p>Phone: ${topupPhone}</p>
-            <p>Transaction ID: ${vtuResponse.data.id}</p>
-            <p style="color:#6b7280;margin-top:24px">You can now return to WhatsApp.</p>
-          </body>
-        </html>
-      `);
+      return res.send(renderSuccessPage(network, topupPhone, amount, vtuResponse.data.id));
     } else {
       return res.send(`❌ Top-up failed: ${vtuResponse.data.api_response || 'Unknown error'}`);
     }
@@ -456,8 +433,51 @@ app.post('/verify-pin/:token', async (req, res) => {
   }
 });
 
+// Helper: render PIN form with optional error message
+function renderPinForm(token, errorMessage) {
+  return `
+    <html>
+      <head>
+        <title>Enter PIN</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1"/>
+        <style>
+          body { font-family: system-ui, -apple-system, Segoe UI, sans-serif; display:flex; justify-content:center; align-items:center; height:100vh; margin:0; background:#f4f6f8; }
+          .card { background:#fff; padding:32px; border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,0.1); max-width:400px; width:100%; text-align:center; }
+          input { width:100%; padding:12px; font-size:16px; border:1px solid #d0d7de; border-radius:8px; margin:16px 0; text-align:center; letter-spacing:0.35em; }
+          button { width:100%; padding:12px; font-size:16px; border:0; border-radius:8px; background:#27ae60; color:#fff; cursor:pointer; }
+          button:hover { background:#1f8f50; }
+          .error { color: red; margin-bottom: 12px; font-weight: bold; }
+        </style>
+      </head>
+      <body>
+        <div class="card">
+          <h2>Enter your 4-digit PIN</h2>
+          ${errorMessage ? `<p class="error">${errorMessage}</p>` : ''}
+          <form method="POST" action="/verify-pin/${token}">
+            <input type="password" name="pin" maxlength="4" required />
+            <button type="submit">Submit</button>
+          </form>
+        </div>
+      </body>
+    </html>
+  `;
+}
 
-
+// Helper: render success page
+function renderSuccessPage(network, topupPhone, amount, transactionId) {
+  return `
+    <html>
+      <body style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;text-align:center;padding:48px">
+        <h2>✅ Top-up Successful!</h2>
+        <p>Amount: ₦${amount}</p>
+        <p>Network: ${networkNames[network]}</p>
+        <p>Phone: ${topupPhone}</p>
+        <p>Transaction ID: ${transactionId}</p>
+        <p style="color:#6b7280;margin-top:24px">You can now return to WhatsApp.</p>
+      </body>
+    </html>
+  `;
+}
 
 
 
