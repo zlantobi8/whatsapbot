@@ -97,6 +97,9 @@ async function sendMainMenu(to, firstName) {
 
 
 
+
+import {DATA_PLANS} from "./dataplans"
+
 async function handleMenuChoice(text, from, userData) {
   const input = text.trim();
   const flowRef = db.collection('flows').doc(from);
@@ -104,27 +107,33 @@ async function handleMenuChoice(text, from, userData) {
   let flow = flowSnap.exists ? flowSnap.data() : {};
 
   try {
-    switch(flow.step) {
+    switch (flow.step) {
+
       // -------- Step 0: Main Menu --------
       case undefined:
-        switch(input) {
+        switch (input) {
           case '1': // Buy Airtime
-            await flowRef.set({ step: 'chooseNetwork' });
-            await sendTextMessage(from, 'Select network:\n1️⃣ MTN\n2️⃣ Glo\n3️⃣ Airtel\n4️⃣ Glo');
+            await flowRef.set({ step: 'chooseNetwork', type: 'airtime' });
+            await sendTextMessage(from, 'Select network:\n1️⃣ MTN\n2️⃣ Glo\n3️⃣ Airtel\n4️⃣9Mobile');
             break;
-          case '2':
-            await sendTextMessage(from, 'Buy Data is not implemented yet.');
+
+          case '2': // Buy Data
+            await flowRef.set({ step: 'chooseNetwork', type: 'data' });
+            await sendTextMessage(from, 'Select network for data:\n1️⃣ MTN\n2️⃣ Glo\n3️⃣ Airtel\n4️⃣9Mobile');
             break;
+
           case '3':
             await sendTextMessage(from, `Your balance: ₦${Number(userData?.balance || 0).toLocaleString()}`);
             break;
+
           case '4':
-            if(userData?.bank){
+            if (userData?.bank) {
               await sendTextMessage(from, `🏦 Bank: ${userData.bank.name}\n💳 Account Name: ${userData.bank.accountName}\n🔢 Account Number: ${userData.bank.accountNumber}`);
             } else {
               await sendTextMessage(from, 'Bank details not available.');
             }
             break;
+
           default:
             await sendTextMessage(from, 'Invalid choice. Reply 1,2,3,4.');
         }
@@ -132,43 +141,93 @@ async function handleMenuChoice(text, from, userData) {
 
       // -------- Step 1: Choose Network --------
       case 'chooseNetwork':
-        if(!['1','2','3','4'].includes(input)){
+        if (!['1', '2', '3', '4'].includes(input)) {
           await sendTextMessage(from, 'Invalid network. Reply 1,2,3,4.');
           return;
         }
-        await flowRef.update({ step: 'enterPhone', network: parseInt(input,10) });
-        await sendTextMessage(from, 'Enter the phone number to top up:');
+
+        const network = parseInt(input, 10);
+        await flowRef.update({ network });
+
+        if (flow.type === 'airtime') {
+          await flowRef.update({ step: 'enterPhone' });
+          await sendTextMessage(from, 'Enter the phone number to top up:');
+        } else if (flow.type === 'data') {
+          // Show data plans
+          const plans = DATA_PLANS[network];
+          let msg = 'Select a data plan:\n';
+          plans.forEach((plan, idx) => {
+            msg += `${idx + 1}. ${plan.plan} - ₦${plan.plan_amount} (${plan.month_validate})\n`;
+          });
+          await flowRef.update({ step: 'choosePlan', plans }); // store plans for selection
+          await sendTextMessage(from, msg);
+        }
         break;
 
-      // -------- Step 2: Enter Phone Number --------
+      // -------- Step 2: Choose Data Plan --------
+      case 'choosePlan':
+        const planIndex = parseInt(input, 10) - 1;
+        if (!flow.plans || planIndex < 0 || planIndex >= flow.plans.length) {
+          await sendTextMessage(from, 'Invalid choice. Select a number from the list.');
+          return;
+        }
+
+        const selectedPlan = flow.plans[planIndex];
+        await flowRef.update({ step: 'enterPhone', selectedPlan });
+        await sendTextMessage(from, `You selected ${selectedPlan.plan}. Enter the phone number to top up:`);
+        break;
+
+      // -------- Step 3: Enter Phone Number --------
       case 'enterPhone':
-        const phoneNumber = input.replace(/\D/g,'');
-        if(phoneNumber.length < 10){
+        const phoneNumber = input.replace(/\D/g, '');
+        if (phoneNumber.length < 10) {
           await sendTextMessage(from, 'Please enter a valid 10-digit phone number.');
           return;
         }
-        await flowRef.update({ step: 'enterAmount', phone: phoneNumber });
-        await sendTextMessage(from, 'Enter the amount to top up:');
+
+        if (flow.type === 'airtime') {
+          await flowRef.update({ step: 'enterAmount', phone: phoneNumber });
+          await sendTextMessage(from, 'Enter the amount to top up:');
+        } else if (flow.type === 'data') {
+          const { selectedPlan } = flow;
+          const amount = selectedPlan.plan_amount;
+
+          const token = crypto.randomBytes(16).toString('hex');
+          const expiresAt = admin.firestore.Timestamp.fromMillis(Date.now() + 5 * 60 * 1000);
+
+          await db.collection('pinTokens').doc(token).set({
+            phone: from,
+            network: flow.network,
+            topupPhone: phoneNumber,
+            amount,
+            plan: selectedPlan,
+            expiresAt
+          });
+
+          const link = `https://whatsapbot.vercel.app/verify-pin/${token}`;
+          await sendTextMessage(from,
+            `To complete your data top-up of ${selectedPlan.plan} for ₦${amount}, verify your PIN here:\n${link}\n\nLink expires in 5 minutes.`
+          );
+
+          await flowRef.delete();
+        }
         break;
 
-      // -------- Step 3: Enter Amount --------
+      // -------- Step 4: Enter Amount (Airtime) --------
       case 'enterAmount':
-        const amount = parseInt(input,10);
-        if(isNaN(amount) || amount <=0){
-          await sendTextMessage(from,'Please enter a valid amount.');
+        const amount = parseInt(input, 10);
+        if (isNaN(amount) || amount <= 0) {
+          await sendTextMessage(from, 'Please enter a valid amount.');
           return;
         }
 
-        // Retrieve flow data
-        const { network, phone: topupPhone } = flow;
-
-        // -------- Generate PIN verification link --------
+        const { network: airtimeNetwork, phone: topupPhone } = flow;
         const token = crypto.randomBytes(16).toString('hex');
         const expiresAt = admin.firestore.Timestamp.fromMillis(Date.now() + 5 * 60 * 1000);
 
         await db.collection('pinTokens').doc(token).set({
           phone: from,
-          network,
+          network: airtimeNetwork,
           topupPhone,
           amount,
           expiresAt
@@ -179,7 +238,6 @@ async function handleMenuChoice(text, from, userData) {
           `To complete your top-up of ₦${amount}, please verify your PIN here:\n${link}\n\nLink expires in 5 minutes.`
         );
 
-        // Clear flow so user can start new operation later
         await flowRef.delete();
         break;
 
@@ -188,7 +246,7 @@ async function handleMenuChoice(text, from, userData) {
         await flowRef.delete();
     }
 
-  } catch(e){
+  } catch (e) {
     console.error('Menu handling error:', e);
     await sendTextMessage(from, 'Unexpected error. Please try again.');
     await flowRef.delete();
