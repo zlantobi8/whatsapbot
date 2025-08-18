@@ -177,7 +177,7 @@ app.post('/verify-pin/:token', async (req, res) => {
     let vtuResponse;
     try {
       vtuResponse = await axios.post(
-        "https://sandbox.vtunaija.com.ng/api/topup",
+        "https://sandbox.vtunaija.com.ng/api/topup/",
         topupData,
         {
           headers: {
