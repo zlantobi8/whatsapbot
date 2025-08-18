@@ -72,6 +72,19 @@ async function sendTextMessage(to, message) {
   }
 }
 
+async function sendMainMenu(to, firstName) {
+  if (firstName) {
+    await sendTextMessage(to, `Welcome back, ${firstName}! 🎉`);
+  }
+  return sendTextMessage(
+    to,
+    `Please choose an option:\n` +
+    `1️⃣ Buy Airtime\n` +
+    `2️⃣ Buy Data\n` +
+    `3️⃣ Check Balance\n` +
+    `4️⃣ View Account Details`
+  );
+}
 
 
 // dataplans.js
@@ -138,182 +151,168 @@ const DATA_PLANS = {
 
 
 
-// ---------- Helper: Send Main Menu ----------
-async function sendMainMenu(to, userData) {
-  const balance = Number(userData?.balance || 0);
-  const firstName = userData?.firstName;
-  let welcomeMsg = '';
 
-  if (firstName) {
-    welcomeMsg = `👋 Welcome back, ${firstName}! 🎉\n`;
-  }
 
-  const menuMsg =
-    `🤖 Main Menu | Balance: ₦${balance.toLocaleString()}\n` +
-    `1️⃣ Buy Airtime\n` +
-    `2️⃣ Buy Data\n` +
-    `3️⃣ Check Balance\n` +
-    `4️⃣ Bank Info`;
 
-  await sendTextMessage(to, welcomeMsg + menuMsg);
-}
 
-// ---------- Handle User Input ----------
+
+
 async function handleMenuChoice(text, from, userData) {
-  const input = text.trim().toLowerCase();
+  const input = text.trim();
   const flowRef = db.collection('flows').doc(from);
   const flowSnap = await flowRef.get();
   let flow = flowSnap.exists ? flowSnap.data() : {};
-
-  const greetings = ['hi', 'hello', 'hey', 'good morning', 'good afternoon', 'good evening'];
-  const farewells = ['bye', 'goodbye', 'see you'];
-
-  // --- Handle Greetings ---
-  if (greetings.some(g => input === g || input.startsWith(g + ' ') || input.startsWith(g + ','))) {
-    await flowRef.delete();
-
-    // Fetch fresh user data from Firestore
-    const userRef = db.collection('users').doc(from);
-    const userSnap = await userRef.get();
-    const latestUserData = userSnap.exists ? userSnap.data() : {};
-
-    await sendMainMenu(from, latestUserData);
-    return;
-  }
-
-  // --- Handle Farewells ---
-  if (farewells.some(f => input === f || input.startsWith(f + ' ') || input.startsWith(f + ','))) {
-    await flowRef.delete();
-    await sendTextMessage(from, `👋 Bye! Come back soon.`);
-    return;
-  }
+  const userBalance = Number(userData?.balance || 0);
 
   try {
-    // --- Reset flow if letters appear where numbers expected ---
+    // --- Smart Reset: catch random messages at any step ---
     const numericSteps = ['chooseNetwork', 'choosePlan', 'enterPhone', 'enterAmount'];
     if (flow.step && numericSteps.includes(flow.step) && !/^\d+$/.test(input)) {
       await flowRef.delete();
-      await sendTextMessage(from, `❌ That doesn’t look like a number.`);
-      await sendMainMenu(from, userData);
+      await sendMainMenu(from, userBalance);
       return;
     }
 
     switch (flow.step) {
-      case undefined: // Main Menu
-        if (input === '1') {
-          await flowRef.set({ step: 'chooseNetwork', type: 'airtime' });
-          await sendTextMessage(from, `Sure! Let’s buy airtime. Which network?\n1️⃣ MTN\n2️⃣ Glo\n3️⃣ Airtel\n4️⃣ 9Mobile`);
-        } else if (input === '2') {
-          await flowRef.set({ step: 'chooseNetwork', type: 'data' });
-          await sendTextMessage(from, `Great! Data top-up. Select a network:\n1️⃣ MTN\n2️⃣ Glo\n3️⃣ Airtel\n4️⃣ 9Mobile`);
-        } else if (input === '3') {
-          await sendTextMessage(from, `💰 Your balance: ₦${Number(userData?.balance || 0).toLocaleString()}`);
-        } else if (input === '4') {
-          if (userData?.bank) {
-            await sendTextMessage(from,
-              `🏦 Bank: ${userData.bank.name}\n💳 Account Name: ${userData.bank.accountName}\n🔢 Account Number: ${userData.bank.accountNumber}`
-            );
-          } else {
-            await sendTextMessage(from, 'Bank details not available.');
-          }
-        } else {
-          await sendTextMessage(from, `I didn’t get that.`);
-          await sendMainMenu(from, userData);
+
+      // -------- Step 0: Main Menu --------
+      case undefined:
+        switch (input) {
+          case '1': // Buy Airtime
+            await flowRef.set({ step: 'chooseNetwork', type: 'airtime' });
+            await sendTextMessage(from, 'Select network:\n1️⃣ MTN\n2️⃣ Glo\n3️⃣ Airtel\n4️⃣ 9Mobile');
+            break;
+
+          case '2': // Buy Data
+            await flowRef.set({ step: 'chooseNetwork', type: 'data' });
+            await sendTextMessage(from, 'Select network for data:\n1️⃣ MTN\n2️⃣ Glo\n3️⃣ Airtel\n4️⃣ 9Mobile');
+            break;
+
+          case '3': // Check balance
+            await sendTextMessage(from, `Your balance: ₦${userBalance.toLocaleString()}`);
+            break;
+
+          case '4': // Bank info
+            if (userData?.bank) {
+              await sendTextMessage(from,
+                `🏦 Bank: ${userData.bank.name}\n💳 Account Name: ${userData.bank.accountName}\n🔢 Account Number: ${userData.bank.accountNumber}`
+              );
+            } else {
+              await sendTextMessage(from, 'Bank details not available.');
+            }
+            break;
+
+          default:
+            await sendTextMessage(from, 'Invalid choice. Reply 1,2,3,4.');
         }
         break;
 
+      // -------- Step 1: Choose Network --------
       case 'chooseNetwork':
-        const network = parseInt(input, 10);
-        if (![1, 2, 3, 4].includes(network)) {
+        if (!['1', '2', '3', '4'].includes(input)) {
           await flowRef.delete();
-          await sendTextMessage(from, `❌ Invalid network.`);
-          await sendMainMenu(from, userData);
+          await sendMainMenu(from, userBalance);
           return;
         }
-
-        await flowRef.update({ step: flow.type === 'airtime' ? 'enterPhone' : 'choosePlan', network });
+        const network = parseInt(input, 10);
+        await flowRef.update({ network });
 
         if (flow.type === 'airtime') {
-          await sendTextMessage(from, `✅ You chose ${networkNames[network]}. Enter the phone number to top up:`);
+          await flowRef.update({ step: 'enterPhone' });
+          await sendTextMessage(from, 'Enter the phone number to top up:');
         } else if (flow.type === 'data') {
           const plans = DATA_PLANS[network] || [];
-          if (!plans.length) {
+          if (plans.length === 0) {
             await flowRef.delete();
-            await sendTextMessage(from, `No plans available.`);
-            await sendMainMenu(from, userData);
+            await sendTextMessage(from, 'No data plans found for this network.');
+            await sendMainMenu(from, userBalance);
             return;
           }
-          await flowRef.update({ plans });
-          let msg = `Here are the ${networkNames[network]} data plans:\n`;
-          plans.forEach((plan, idx) => msg += `${idx + 1}. ${plan.plan} - ₦${plan.plan_amount} (${plan.month_validate})\n`);
+
+          let msg = 'Select a data plan:\n';
+          plans.forEach((plan, idx) => {
+            msg += `${idx + 1}. ${plan.plan} - ₦${plan.plan_amount} (${plan.month_validate})\n`;
+          });
+
+          await flowRef.update({ step: 'choosePlan', plans });
           await sendTextMessage(from, msg);
         }
         break;
 
+      // -------- Step 2: Choose Data Plan --------
       case 'choosePlan':
         const planIndex = parseInt(input, 10) - 1;
         if (!flow.plans || planIndex < 0 || planIndex >= flow.plans.length) {
           await flowRef.delete();
-          await sendTextMessage(from, `❌ Invalid selection.`);
-          await sendMainMenu(from, userData);
+          await sendMainMenu(from, userBalance);
           return;
         }
 
         const selectedPlan = flow.plans[planIndex];
-        if (Number(userData?.balance || 0) < Number(selectedPlan.plan_amount)) {
+        if (userBalance < Number(selectedPlan.plan_amount)) {
           await flowRef.delete();
-          await sendTextMessage(from, `❌ Insufficient balance. You need ₦${selectedPlan.plan_amount}.`);
-          await sendMainMenu(from, userData);
+          await sendTextMessage(from,
+            `❌ Insufficient balance. Your balance is ₦${userBalance}. You need ₦${selectedPlan.plan_amount} to buy this plan.`
+          );
+          await sendMainMenu(from, userBalance);
           return;
         }
 
         await flowRef.update({ step: 'enterPhone', selectedPlan });
-        await sendTextMessage(from, `✅ You selected ${selectedPlan.plan}. Enter the phone number to top up:`);
+        await sendTextMessage(from, `You selected ${selectedPlan.plan}. Enter the phone number to top up:`);
         break;
 
+      // -------- Step 3: Enter Phone Number --------
       case 'enterPhone':
         const phoneNumber = input.replace(/\D/g, '');
         if (phoneNumber.length < 10) {
           await flowRef.delete();
-          await sendTextMessage(from, `❌ Invalid phone number.`);
-          await sendMainMenu(from, userData);
+          await sendMainMenu(from, userBalance);
           return;
         }
 
         if (flow.type === 'airtime') {
           await flowRef.update({ step: 'enterAmount', phone: phoneNumber });
-          await sendTextMessage(from, `👍 Phone number set. How much airtime do you want to top up?`);
+          await sendTextMessage(from, 'Enter the amount to top up:');
         } else if (flow.type === 'data') {
+          const { selectedPlan } = flow;
           const token = crypto.randomBytes(16).toString('hex');
           const expiresAt = admin.firestore.Timestamp.fromMillis(Date.now() + 5 * 60 * 1000);
+
           await db.collection('pinTokens').doc(token).set({
             phone: from,
             network: flow.network,
             topupPhone: phoneNumber,
-            plan: flow.selectedPlan,
+            plan: selectedPlan,
             type: 'data',
             expiresAt
           });
+
           const link = `https://whatsapbot.vercel.app/verify-pin/${token}`;
           await sendTextMessage(from,
-            `✅ To complete your data top-up of ${flow.selectedPlan.plan} for ₦${flow.selectedPlan.plan_amount}, verify your PIN here:\n${link}\n(Link expires in 5 mins)`
+            `To complete your data top-up of ${selectedPlan.plan} for ₦${selectedPlan.plan_amount}, verify your PIN here:\n${link}\n\nLink expires in 5 minutes.`
           );
+
           await flowRef.delete();
         }
         break;
 
+      // -------- Step 4: Enter Amount (Airtime) --------
       case 'enterAmount':
         const amount = parseInt(input, 10);
-        if (isNaN(amount) || amount <= 0 || Number(userData?.balance || 0) < amount) {
+        if (isNaN(amount) || amount <= 0 || userBalance < amount) {
           await flowRef.delete();
-          await sendTextMessage(from, `❌ Invalid amount or insufficient balance.`);
-          await sendMainMenu(from, userData);
+          await sendTextMessage(from,
+            `❌ Invalid amount or insufficient balance. Your balance is ₦${userBalance}.`
+          );
+          await sendMainMenu(from, userBalance);
           return;
         }
 
         const { network: airtimeNetwork, phone: topupPhone } = flow;
         const token = crypto.randomBytes(16).toString('hex');
         const expiresAt = admin.firestore.Timestamp.fromMillis(Date.now() + 5 * 60 * 1000);
+
         await db.collection('pinTokens').doc(token).set({
           phone: from,
           network: airtimeNetwork,
@@ -325,23 +324,29 @@ async function handleMenuChoice(text, from, userData) {
 
         const link = `https://whatsapbot.vercel.app/verify-pin/${token}`;
         await sendTextMessage(from,
-          `✅ To complete your top-up of ₦${amount}, verify your PIN here:\n${link}\n(Link expires in 5 mins)`
+          `To complete your top-up of ₦${amount}, please verify your PIN here:\n${link}\n\nLink expires in 5 minutes.`
         );
+
         await flowRef.delete();
         break;
 
       default:
         await flowRef.delete();
-        await sendMainMenu(from, userData);
+        await sendMainMenu(from, userBalance);
         break;
     }
 
-  } catch (err) {
-    console.error('Menu handling error:', err);
+  } catch (e) {
+    console.error('Menu handling error:', e);
     await flowRef.delete();
-    await sendMainMenu(from, userData);
+    await sendMainMenu(from, userBalance);
   }
 }
+
+// --- Helper to send main menu ---
+
+
+// --- Main Menu Helper ---
 
 
 
