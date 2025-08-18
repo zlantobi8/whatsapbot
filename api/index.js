@@ -89,7 +89,7 @@ async function sendMainMenu(to, firstName) {
 
 // dataplans.js
 
- const MTN_PLAN = {
+const MTN_PLAN = {
   ALL: [
     { id: 304, dataplan_id: "304", network: 1, plan_type: "SME", plan_type1: "Datashare", plan_network: "MTN", month_validate: "30 Days", plan: "500MB", plan_amount: "450.00" },
     { id: 121, dataplan_id: "121", network: 1, plan_type: "SME", plan_type1: "Datashare", plan_network: "MTN", month_validate: "30 Days", plan: "1GB", plan_amount: "560.00" },
@@ -111,7 +111,7 @@ const GLO_PLAN = {
   ]
 };
 
- const AIRTEL_PLAN = {
+const AIRTEL_PLAN = {
   ALL: [
     { id: 28, dataplan_id: "28", network: 2, plan_type: "Corporate", plan_type1: "Cooperate", plan_network: "AIRTEL", month_validate: "30 Days", plan: "500MB", plan_amount: "520.00" },
     { id: 29, dataplan_id: "29", network: 2, plan_type: "Corporate", plan_type1: "Cooperate", plan_network: "AIRTEL", month_validate: "30 Days", plan: "1GB", plan_amount: "822.00" },
@@ -128,7 +128,7 @@ const GLO_PLAN = {
   ]
 };
 
- const MOBILE9_PLAN = {
+const MOBILE9_PLAN = {
   ALL: [
     { id: 34, dataplan_id: "34", network: 4, plan_type: "Corporate", plan_type1: "Cooperate", plan_network: "9MOBILE", month_validate: "30 Days", plan: "500MB", plan_amount: "80.00" },
     { id: 35, dataplan_id: "35", network: 4, plan_type: "Corporate", plan_type1: "Cooperate", plan_network: "9MOBILE", month_validate: "30 Days", plan: "1GB", plan_amount: "149.00" },
@@ -138,7 +138,7 @@ const GLO_PLAN = {
   ]
 };
 
- const DATA_PLANS = {
+const DATA_PLANS = {
   1: MTN_PLAN.ALL,
   2: AIRTEL_PLAN.ALL,
   3: GLO_PLAN.ALL,
@@ -171,12 +171,12 @@ async function handleMenuChoice(text, from, userData) {
         switch (input) {
           case '1': // Buy Airtime
             await flowRef.set({ step: 'chooseNetwork', type: 'airtime' });
-            await sendTextMessage(from, 'Select network:\n1️⃣ MTN\n2️⃣ Glo\n3️⃣ Airtel\n4️⃣9Mobile');
+            await sendTextMessage(from, 'Select network:\n1️⃣ MTN\n2️⃣ Glo\n3️⃣ Airtel\n4️⃣ 9Mobile');
             break;
 
           case '2': // Buy Data
             await flowRef.set({ step: 'chooseNetwork', type: 'data' });
-            await sendTextMessage(from, 'Select network for data:\n1️⃣ MTN\n2️⃣ Glo\n3️⃣ Airtel\n4️⃣9Mobile');
+            await sendTextMessage(from, 'Select network for data:\n1️⃣ MTN\n2️⃣ Glo\n3️⃣ Airtel\n4️⃣ 9Mobile');
             break;
 
           case '3':
@@ -185,7 +185,9 @@ async function handleMenuChoice(text, from, userData) {
 
           case '4':
             if (userData?.bank) {
-              await sendTextMessage(from, `🏦 Bank: ${userData.bank.name}\n💳 Account Name: ${userData.bank.accountName}\n🔢 Account Number: ${userData.bank.accountNumber}`);
+              await sendTextMessage(from,
+                `🏦 Bank: ${userData.bank.name}\n💳 Account Name: ${userData.bank.accountName}\n🔢 Account Number: ${userData.bank.accountNumber}`
+              );
             } else {
               await sendTextMessage(from, 'Bank details not available.');
             }
@@ -210,13 +212,12 @@ async function handleMenuChoice(text, from, userData) {
           await flowRef.update({ step: 'enterPhone' });
           await sendTextMessage(from, 'Enter the phone number to top up:');
         } else if (flow.type === 'data') {
-          // Show data plans
           const plans = DATA_PLANS[network];
           let msg = 'Select a data plan:\n';
           plans.forEach((plan, idx) => {
             msg += `${idx + 1}. ${plan.plan} - ₦${plan.plan_amount} (${plan.month_validate})\n`;
           });
-          await flowRef.update({ step: 'choosePlan', plans }); // store plans for selection
+          await flowRef.update({ step: 'choosePlan', plans });
           await sendTextMessage(from, msg);
         }
         break;
@@ -247,8 +248,6 @@ async function handleMenuChoice(text, from, userData) {
           await sendTextMessage(from, 'Enter the amount to top up:');
         } else if (flow.type === 'data') {
           const { selectedPlan } = flow;
-          const amount = selectedPlan.plan_amount;
-
           const token = crypto.randomBytes(16).toString('hex');
           const expiresAt = admin.firestore.Timestamp.fromMillis(Date.now() + 5 * 60 * 1000);
 
@@ -256,14 +255,14 @@ async function handleMenuChoice(text, from, userData) {
             phone: from,
             network: flow.network,
             topupPhone: phoneNumber,
-            amount,
-            plan: selectedPlan,
+            plan: selectedPlan,      // store plan for data top-up
+            type: 'data',            // mark as data
             expiresAt
           });
 
           const link = `https://whatsapbot.vercel.app/verify-pin/${token}`;
           await sendTextMessage(from,
-            `To complete your data top-up of ${selectedPlan.plan} for ₦${amount}, verify your PIN here:\n${link}\n\nLink expires in 5 minutes.`
+            `To complete your data top-up of ${selectedPlan.plan} for ₦${selectedPlan.plan_amount}, verify your PIN here:\n${link}\n\nLink expires in 5 minutes.`
           );
 
           await flowRef.delete();
@@ -287,6 +286,7 @@ async function handleMenuChoice(text, from, userData) {
           network: airtimeNetwork,
           topupPhone,
           amount,
+          type: 'airtime',           // mark as airtime
           expiresAt
         });
 
@@ -309,6 +309,7 @@ async function handleMenuChoice(text, from, userData) {
     await flowRef.delete();
   }
 }
+
 
 // Paystack webhook
 app.post(
@@ -472,7 +473,7 @@ app.post('/verify-pin/:token', async (req, res) => {
     const tokenSnap = await tokenRef.get();
     if (!tokenSnap.exists) return res.send('Invalid or expired link.');
 
-    const { phone, network, topupPhone, amount, expiresAt } = tokenSnap.data();
+    const { phone, network, topupPhone, amount, plan, type, expiresAt } = tokenSnap.data();
     if (expiresAt.toMillis() < Date.now()) {
       await tokenRef.delete();
       return res.send('Link expired. Please start the top-up process again.');
@@ -483,61 +484,64 @@ app.post('/verify-pin/:token', async (req, res) => {
     if (!user) return res.send('User not found.');
 
     const pin = (req.body.pin || '').trim();
-
-    // Wrong PIN → re-render form with inline error
     if (!checkPin(pin, user.pinHash)) {
       return res.send(renderPinForm(req.params.token, 'Incorrect PIN. Please try again.'));
     }
 
-    // Call VTU API
-    const topupData = {
-      network: network.toString(),
-      mobile_number: topupPhone,
-      Ported_number: "true",
-      request_id: `${Date.now()}`,
-      amount: amount.toString(),
-      airtime_type: "VTU"
-    };
-
+    // VTU API request
     let vtuResponse;
     try {
-      vtuResponse = await axios.post(
-        "https://sandbox.vtunaija.com.ng/api/topup/",
-        topupData,
-        {
-          headers: {
-            Authorization: "Token oluwatobilobad60bdcdf4165b62b81d41e6a83cb8c731e",
-            "Content-Type": "application/json"
-          }
-        }
-      );
+      if (type === 'airtime') {
+        vtuResponse = await axios.post(
+          "https://sandbox.vtunaija.com.ng/api/topup/",
+          {
+            network: network.toString(),
+            mobile_number: topupPhone,
+            Ported_number: "true",
+            request_id: `${Date.now()}`,
+            amount: amount.toString(),
+            airtime_type: "VTU"
+          },
+          { headers: { Authorization: "Token YOUR_VTU_KEY", "Content-Type": "application/json" } }
+        );
+      } else if (type === 'data') {
+        vtuResponse = await axios.post(
+          "https://sandbox.vtunaija.com.ng/api/data/",
+          {
+            network: network.toString(),
+            mobile_number: topupPhone,
+            request_id: `${Date.now()}`,
+            plan: plan.dataplan_id
+          },
+          { headers: { Authorization: "Token YOUR_VTU_KEY", "Content-Type": "application/json" } }
+        );
+      }
     } catch (err) {
       console.error('VTU Error:', err.response?.data || err.message);
-      return res.send('Top-up failed due to network or API error.');
+      return res.send(`${type === 'airtime' ? 'Airtime' : 'Data'} top-up failed due to network or API error.`);
     }
 
+    // Check VTU response
     if (vtuResponse.data?.status === 'success') {
-      // Save receipt in subcollection
       await db.collection('users').doc(phone)
-        .collection('airtimeTransactions')
+        .collection(type === 'airtime' ? 'airtimeTransactions' : 'dataTransactions')
         .add({
           network: networkNames[network],
           networkId: network,
           phone: topupPhone,
-          amount: Number(amount),
+          amount: Number(amount) || plan.plan_amount,
+          plan: type === 'data' ? plan.plan : null,
           transactionId: vtuResponse.data.id,
           timestamp: admin.firestore.FieldValue.serverTimestamp()
         });
 
-      // Send WhatsApp confirmation
+      // WhatsApp confirmation
       await sendTextMessage(phone,
-        `✅ Airtime top-up successful!\nNetwork: ${networkNames[network]}\nPhone: ${topupPhone}\nAmount: ₦${amount}\nTransaction ID: ${vtuResponse.data.id}`
+        `✅ ${type === 'airtime' ? 'Airtime' : 'Data'} top-up successful!\nNetwork: ${networkNames[network]}\nPhone: ${topupPhone}\nAmount: ₦${amount || plan.plan_amount}\nTransaction ID: ${vtuResponse.data.id}`
       );
 
-      // Clean up token
       await tokenRef.delete();
-
-      return res.send(renderSuccessPage(network, topupPhone, amount, vtuResponse.data.id));
+      return res.send(renderSuccessPage(network, topupPhone, amount || plan.plan_amount, vtuResponse.data.id));
     } else {
       return res.send(`❌ Top-up failed: ${vtuResponse.data.api_response || 'Unknown error'}`);
     }
