@@ -110,7 +110,7 @@ async function handleMenuChoice(text, from, userData) {
         switch(input) {
           case '1': // Buy Airtime
             await flowRef.set({ step: 'chooseNetwork' });
-            await sendTextMessage(from, 'Select network:\n1️⃣ MTN\n2️⃣ Airtel\n3️⃣ Glo\n4️⃣ 9Mobile');
+            await sendTextMessage(from, 'Select network:\n1️⃣ MTN\n2️⃣ Glo\n3️⃣ Airtel\n4️⃣ Glo');
             break;
           case '2':
             await sendTextMessage(from, 'Buy Data is not implemented yet.');
@@ -321,7 +321,7 @@ app.use(bodyParser.json());
 
 
 
-const networkNames = { 1: 'MTN', 2: 'Airtel', 3: 'Glo', 4: '9Mobile' };
+const networkNames = { 1: 'MTN', 2: 'Glo', 3: '9Mobile', 4: 'Airtel' };
 
 // Utility: Compare plain PIN with hashed PIN
 function checkPin(pin, pinHash) {
