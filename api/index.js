@@ -572,7 +572,7 @@ app.post('/verify-pin/:token', async (req, res) => {
     try {
       vtuResponse = await axios.post(apiUrl, topupPayload, {
         headers: {
-          Authorization: "Token zlantobidd2d6983b3870e717bbbb7d006e7f996f1",
+          Authorization: "Token zlantobi dd2d6983b3870e717bbbb7d006e7f996f1",
           "Content-Type": "application/json"
         }
       });
