@@ -87,6 +87,63 @@ async function sendMainMenu(to, firstName) {
 }
 
 
+// dataplans.js
+
+ const MTN_PLAN = {
+  ALL: [
+    { id: 304, dataplan_id: "304", network: 1, plan_type: "SME", plan_type1: "Datashare", plan_network: "MTN", month_validate: "30 Days", plan: "500MB", plan_amount: "450.00" },
+    { id: 121, dataplan_id: "121", network: 1, plan_type: "SME", plan_type1: "Datashare", plan_network: "MTN", month_validate: "30 Days", plan: "1GB", plan_amount: "560.00" },
+    { id: 122, dataplan_id: "122", network: 1, plan_type: "SME", plan_type1: "Datashare", plan_network: "MTN", month_validate: "30 Days", plan: "2GB", plan_amount: "1150.00" },
+    { id: 123, dataplan_id: "123", network: 1, plan_type: "SME", plan_type1: "Datashare", plan_network: "MTN", month_validate: "30 Days", plan: "3GB", plan_amount: "1600.00" },
+    { id: 124, dataplan_id: "124", network: 1, plan_type: "SME", plan_type1: "Datashare", plan_network: "MTN", month_validate: "30 Days", plan: "5GB", plan_amount: "2400.00" }
+  ]
+};
+
+const GLO_PLAN = {
+  ALL: [
+    { id: 22, dataplan_id: "22", network: 3, plan_type: "Corporate", plan_type1: "Cooperate", plan_network: "GLO", month_validate: "30 Days", plan: "500MB", plan_amount: "225.00" },
+    { id: 23, dataplan_id: "23", network: 3, plan_type: "Corporate", plan_type1: "Cooperate", plan_network: "GLO", month_validate: "30 Days", plan: "1GB", plan_amount: "450.00" },
+    { id: 24, dataplan_id: "24", network: 3, plan_type: "Corporate", plan_type1: "Cooperate", plan_network: "GLO", month_validate: "30 Days", plan: "2GB", plan_amount: "900.00" },
+    { id: 25, dataplan_id: "25", network: 3, plan_type: "Corporate", plan_type1: "Cooperate", plan_network: "GLO", month_validate: "30 Days", plan: "3GB", plan_amount: "1350.00" },
+    { id: 26, dataplan_id: "26", network: 3, plan_type: "Corporate", plan_type1: "Cooperate", plan_network: "GLO", month_validate: "30 Days", plan: "5GB", plan_amount: "2250.00" },
+    { id: 27, dataplan_id: "27", network: 3, plan_type: "Corporate", plan_type1: "Cooperate", plan_network: "GLO", month_validate: "30 Days", plan: "10GB", plan_amount: "4500.00" },
+    { id: 158, dataplan_id: "158", network: 3, plan_type: "Cooperate", plan_type1: "Gifting_Plan", plan_network: "GLO", month_validate: "30 Days", plan: "7.5GB", plan_amount: "2600.00" }
+  ]
+};
+
+export const AIRTEL_PLAN = {
+  ALL: [
+    { id: 28, dataplan_id: "28", network: 2, plan_type: "Corporate", plan_type1: "Cooperate", plan_network: "AIRTEL", month_validate: "30 Days", plan: "500MB", plan_amount: "520.00" },
+    { id: 29, dataplan_id: "29", network: 2, plan_type: "Corporate", plan_type1: "Cooperate", plan_network: "AIRTEL", month_validate: "30 Days", plan: "1GB", plan_amount: "822.00" },
+    { id: 30, dataplan_id: "30", network: 2, plan_type: "Corporate", plan_type1: "Cooperate", plan_network: "AIRTEL", month_validate: "30 Days", plan: "2GB", plan_amount: "1557.00" },
+    { id: 31, dataplan_id: "31", network: 2, plan_type: "Corporate", plan_type1: "Cooperate", plan_network: "AIRTEL", month_validate: "7 Days", plan: "100MB", plan_amount: "120.00" },
+    { id: 32, dataplan_id: "32", network: 2, plan_type: "Corporate", plan_type1: "Cooperate", plan_network: "AIRTEL", month_validate: "30 Days", plan: "6GB", plan_amount: "3100.00" },
+    { id: 111, dataplan_id: "111", network: 2, plan_type: "SME", plan_type1: "SME", plan_network: "AIRTEL", month_validate: "2 Days", plan: "150MB", plan_amount: "80.00" },
+    { id: 112, dataplan_id: "112", network: 2, plan_type: "SME", plan_type1: "SME", plan_network: "AIRTEL", month_validate: "2 Days", plan: "300MB", plan_amount: "140.00" },
+    { id: 113, dataplan_id: "113", network: 2, plan_type: "SME", plan_type1: "SME", plan_network: "AIRTEL", month_validate: "1 Days", plan: "1GB", plan_amount: "400.00" },
+    { id: 114, dataplan_id: "114", network: 2, plan_type: "SME", plan_type1: "SME", plan_network: "AIRTEL", month_validate: "5 Days", plan: "2GB", plan_amount: "720.00" },
+    { id: 116, dataplan_id: "116", network: 2, plan_type: "SME", plan_type1: "SME", plan_network: "AIRTEL", month_validate: "7 Days", plan: "3GB", plan_amount: "1100.00" },
+    { id: 117, dataplan_id: "117", network: 2, plan_type: "SME", plan_type1: "SME", plan_network: "AIRTEL", month_validate: "7 Days", plan: "7GB", plan_amount: "2200.00" },
+    { id: 118, dataplan_id: "118", network: 2, plan_type: "SME", plan_type1: "SME", plan_network: "AIRTEL", month_validate: "30 Days", plan: "10GB", plan_amount: "3400.00" }
+  ]
+};
+
+ const MOBILE9_PLAN = {
+  ALL: [
+    { id: 34, dataplan_id: "34", network: 4, plan_type: "Corporate", plan_type1: "Cooperate", plan_network: "9MOBILE", month_validate: "30 Days", plan: "500MB", plan_amount: "80.00" },
+    { id: 35, dataplan_id: "35", network: 4, plan_type: "Corporate", plan_type1: "Cooperate", plan_network: "9MOBILE", month_validate: "30 Days", plan: "1GB", plan_amount: "149.00" },
+    { id: 36, dataplan_id: "36", network: 4, plan_type: "Corporate", plan_type1: "Cooperate", plan_network: "9MOBILE", month_validate: "30 Days", plan: "2GB", plan_amount: "300.00" },
+    { id: 37, dataplan_id: "37", network: 4, plan_type: "Corporate", plan_type1: "Cooperate", plan_network: "9MOBILE", month_validate: "30 Days", plan: "3GB", plan_amount: "450.00" },
+    { id: 39, dataplan_id: "39", network: 4, plan_type: "Corporate", plan_type1: "Cooperate", plan_network: "9MOBILE", month_validate: "30 Days", plan: "10GB", plan_amount: "1400.00" }
+  ]
+};
+
+ const DATA_PLANS = {
+  1: MTN_PLAN.ALL,
+  2: AIRTEL_PLAN.ALL,
+  3: GLO_PLAN.ALL,
+  4: MOBILE9_PLAN.ALL
+};
 
 
 
@@ -98,7 +155,7 @@ async function sendMainMenu(to, firstName) {
 
 
 
-import {DATA_PLANS} from "./dataplans"
+
 
 async function handleMenuChoice(text, from, userData) {
   const input = text.trim();
