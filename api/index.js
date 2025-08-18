@@ -82,7 +82,7 @@ async function sendMainMenu(to, firstName) {
     `1️⃣ Buy Airtime\n` +
     `2️⃣ Buy Data\n` +
     `3️⃣ Check Balance\n` +
-    `4️⃣ View Account Details`
+    `4️⃣ Bank Info`
   );
 }
 
