@@ -541,7 +541,7 @@ app.post('/verify-pin/:token', async (req, res) => {
 
     if (type === 'airtime') {
       topupAmount = Number(amount);
-      apiUrl = 'https://sandbox.vtunaija.com.ng/api/topup/';
+      apiUrl = 'https://vtunaija.com.ng/api/topup/';
       topupPayload = {
         network: network.toString(),
         mobile_number: topupPhone,
@@ -552,7 +552,7 @@ app.post('/verify-pin/:token', async (req, res) => {
       };
     } else if (type === 'data') {
       topupAmount = Number(plan.plan_amount);
-      apiUrl = 'https://sandbox.vtunaija.com.ng/api/data/';
+      apiUrl = 'https://vtunaija.com.ng/api/data/';
       topupPayload = {
         network: network.toString(),
         mobile_number: topupPhone,
@@ -572,7 +572,7 @@ app.post('/verify-pin/:token', async (req, res) => {
     try {
       vtuResponse = await axios.post(apiUrl, topupPayload, {
         headers: {
-          Authorization: "Token oluwatobilobad60bdcdf4165b62b81d41e6a83cb8c731e",
+          Authorization: "Token zlantobidd2d6983b3870e717bbbb7d006e7f996f1",
           "Content-Type": "application/json"
         }
       });
