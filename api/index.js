@@ -682,7 +682,7 @@ function renderPinForm(token, errorMessage) {
       </head>
       <body>
         <div class="card">
-          <img src="/static/logo.png" alt="Zlt Topup" class="logo" />
+          <img src="./static/logo.png" alt="Zlt Topup" class="logo" />
           <h2>Enter your 4-digit PIN</h2>
           ${errorMessage ? `<p class="error">${errorMessage}</p>` : ''}
           <form method="POST" action="/verify-pin/${token}">
@@ -722,7 +722,7 @@ function renderSuccessPage(network, topupPhone, amount, transactionId) {
       </head>
       <body>
         <div class="card">
-          <img src="/static/logo.png" alt="Zlt Topup" class="logo" />
+          <img src="./static/logo.png" alt="Zlt Topup" class="logo" />
           <h2>✅ Top-up Successful!</h2>
           <p><strong>Amount:</strong> ₦${amount}</p>
           <p><strong>Network:</strong> ${networkNames[network]}</p>
@@ -997,7 +997,7 @@ app.get('/set-pin/:token', async (req, res) => {
     </head>
     <body>
       <div class="card">
-        <img src="/static/logo.png" alt="Zlt Topup" class="logo" />
+        <img src="./static/logo.png" alt="Zlt Topup" class="logo" />
         <h2>Set your Zlt Topup PIN</h2>
         <form method="POST" action="/set-pin/${req.params.token}" enctype="application/x-www-form-urlencoded">
           <input type="password" name="pin" placeholder="Enter 4-digit PIN" maxlength="4" required />
@@ -1111,7 +1111,7 @@ app.post('/set-pin/:token', async (req, res) => {
     </head>
     <body>
       <div class="card">
-        <img src="/static/logo.png" alt="Zlt Topup" class="logo" />
+        <img src="./static/logo.png" alt="Zlt Topup" class="logo" />
         <h2>🎉 PIN Set Successfully!</h2>
         <p><strong>${firstName} ${lastName}</strong>, your account is ready.</p>
         <p>🏦 <strong>Bank:</strong> ${accountData.bank.name}</p>
@@ -1173,7 +1173,7 @@ app.get("/privacy-policy", (req, res) => {
     </head>
     <body>
       <div class="card">
-        <img src="/static/logo.png" alt="Zlt Topup" class="logo" />
+        <img src="./static/logo.png" alt="Zlt Topup" class="logo" />
         <h1>Privacy Policy</h1>
         <p>At <strong>Zlt Topup</strong>, we value your privacy. This Privacy Policy explains how we collect, use, and protect your personal information.</p>
         
@@ -1236,7 +1236,7 @@ app.get("/delete-user-data", (req, res) => {
     </head>
     <body>
       <div class="card">
-        <img src="/static/logo.png" alt="Zlt Topup" class="logo" />
+        <img src="./static/logo.png" alt="Zlt Topup" class="logo" />
         <h1>Data Deletion Instructions</h1>
         <p>At <strong>Zlt Topup</strong>, we respect your privacy and give you full control over your data.</p>
         
