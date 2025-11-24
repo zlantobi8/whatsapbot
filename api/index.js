@@ -37,7 +37,7 @@ app.use("/static", express.static(path.join(__dirname, "static")));
 
 /* ---------------- ENV ------------ */
 
-const accessToken = "EAAPYD7d0GSsBPKcq0e0rw7lV4LNrhZBZCrY69cKyUazXn3o0jU6dTF4ZBgQlBkFqz4k38zt3PGBKmxOXBiryA5eSTzawK6tOrSKJBqpauFQfcNB3vZABvwZCZCmZAYl4QUEdFvyPvkUogmBrT5jYyRj4TMsCqjBZAarbHjnuFNZBxyK78BkWCzWk04xhVbbR3Y2Um"
+const accessToken = process.env.ACCESS_TOKEN
 const phoneNumberId = process.env.phoneNumberId;   // ensure this key matches your .env
 const verifyToken = process.env.verifyToken;
 
